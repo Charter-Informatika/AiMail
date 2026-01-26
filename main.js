@@ -17,6 +17,39 @@ import updaterPkg from "electron-updater";
 const { autoUpdater } = updaterPkg;
 import { getSecret } from './src/utils/keytarHelper.js'; 
 
+// Fallback DATABASE_URL ha a Keytar nem elérhető vagy nincs beállítva
+const FALLBACK_DATABASE_URL = 'mysql://aimail:kfawdwagfaw!378@192.168.88.58:3306/aimail';
+
+// Helper: adatbázis kapcsolat létrehozása fallback támogatással
+// Ha az elsődleges URL-lel nem sikerül, automatikusan próbálkozik a fallback URL-lel
+async function createDbConnectionWithFallback() {
+  let dbUrl = null;
+  try {
+    dbUrl = await getSecret('DATABASE_URL');
+  } catch (e) {
+    console.warn('[DB] getSecret failed, using fallback:', e?.message || e);
+  }
+  
+  // Próbálkozás az elsődleges URL-lel (ha van)
+  if (dbUrl) {
+    try {
+      const connection = await mysql.createConnection(dbUrl);
+      return connection;
+    } catch (err) {
+      console.warn('[DB] Primary connection failed, trying fallback:', err?.message || err);
+    }
+  }
+  
+  // Fallback URL-lel próbálkozás
+  try {
+    const connection = await mysql.createConnection(FALLBACK_DATABASE_URL);
+    return connection;
+  } catch (err) {
+    console.error('[DB] Fallback connection also failed:', err?.message || err);
+    throw err; // Ha a fallback is sikertelen, dobjuk tovább a hibát
+  }
+}
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -184,9 +217,8 @@ async function isDemoOver(licence = null) {
   try {
     // Try DB-based checks first when possible
     try {
-      const dbUrl = await getSecret('DATABASE_URL');
-      if (dbUrl && licence) {
-        const connection = await mysql.createConnection(dbUrl);
+      if (licence) {
+        const connection = await createDbConnectionWithFallback();
         const [rows] = await connection.execute('SELECT trialEndDate, remainingGenerations FROM user WHERE licence = ? LIMIT 1', [licence]);
         await connection.end();
         if (Array.isArray(rows) && rows.length > 0) {
@@ -236,12 +268,7 @@ ipcMain.handle('get-licence-from-localstorage', async (event, licence) => {
 
 async function setTrialEndedForLicence(licence) {
   try {
-    const dbUrl = await getSecret('DATABASE_URL'); // Az adatbázis URL-t Keytarból olvassuk
-    if (!dbUrl) {
-      throw new Error('DATABASE_URL nincs beállítva Keytarban!');
-    }
-
-    const connection = await mysql.createConnection(dbUrl); // URL alapú csatlakozás
+    const connection = await createDbConnectionWithFallback();
     const [result] = await connection.execute(
       'UPDATE user SET trialEnded = 1 WHERE licence = ?',
       [licence]
@@ -309,9 +336,8 @@ ipcMain.handle('get-trial-status', async (event) => {
   }
 
   try {
-    const dbUrl = await getSecret('DATABASE_URL');
-    if (dbUrl && licence) {
-      const connection = await mysql.createConnection(dbUrl);
+    if (licence) {
+      const connection = await createDbConnectionWithFallback();
       const [rows] = await connection.execute('SELECT trialEndDate, remainingGenerations FROM user WHERE licence = ? LIMIT 1', [licence]);
       await connection.end();
       if (Array.isArray(rows) && rows.length > 0) {
@@ -1579,45 +1605,40 @@ async function generateReply(email) {
     }
 
     try {
-      const dbUrl = await getSecret('DATABASE_URL');
-      if (dbUrl) {
-        // Determine current user email: prefer activationEmail (set on licence activation),
-        // then authState stored email, then smtpHandler config email as fallback.
-        let userEmail = null;
-        try {
-          if (typeof activationEmail !== 'undefined' && activationEmail) {
-            userEmail = activationEmail;
-          } else if (authState && authState.credentials && authState.credentials.email) {
-            userEmail = authState.credentials.email;
-          } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
-            userEmail = smtpHandler.config.email;
-          }
-        } catch (e) {
-          // In the unlikely event activationEmail is not accessible, fallback silently
-          if (authState && authState.credentials && authState.credentials.email) {
-            userEmail = authState.credentials.email;
-          } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
-            userEmail = smtpHandler.config.email;
-          }
+      // Determine current user email: prefer activationEmail (set on licence activation),
+      // then authState stored email, then smtpHandler config email as fallback.
+      let userEmail = null;
+      try {
+        if (typeof activationEmail !== 'undefined' && activationEmail) {
+          userEmail = activationEmail;
+        } else if (authState && authState.credentials && authState.credentials.email) {
+          userEmail = authState.credentials.email;
+        } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
+          userEmail = smtpHandler.config.email;
         }
-        if (userEmail) {
-          try {
-            const connection = await mysql.createConnection(dbUrl);
-            // Ensure we don't go below zero
-            await connection.execute(
-              'UPDATE user SET remainingGenerations = GREATEST(0, remainingGenerations - 1) WHERE email = ?',
-              [userEmail]
-            );
-            await connection.end();
-            console.log('[generateReply] Decremented remainingGenerations for', userEmail);
-          } catch (dbErr) {
-            console.error('[generateReply] DB update error:', dbErr);
-          }
-        } else {
-          console.log('[generateReply] No authenticated user email found; skipping remainingGenerations decrement.');
+      } catch (e) {
+        // In the unlikely event activationEmail is not accessible, fallback silently
+        if (authState && authState.credentials && authState.credentials.email) {
+          userEmail = authState.credentials.email;
+        } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
+          userEmail = smtpHandler.config.email;
+        }
+      }
+      if (userEmail) {
+        try {
+          const connection = await createDbConnectionWithFallback();
+          // Ensure we don't go below zero
+          await connection.execute(
+            'UPDATE user SET remainingGenerations = GREATEST(0, remainingGenerations - 1) WHERE email = ?',
+            [userEmail]
+          );
+          await connection.end();
+          console.log('[generateReply] Decremented remainingGenerations for', userEmail);
+        } catch (dbErr) {
+          console.error('[generateReply] DB update error:', dbErr);
         }
       } else {
-        console.log('[generateReply] DATABASE_URL not set; skipping remainingGenerations decrement.');
+        console.log('[generateReply] No authenticated user email found; skipping remainingGenerations decrement.');
       }
     } catch (err) {
       console.error('[generateReply] Error while attempting to decrement remainingGenerations:', err);
@@ -2477,21 +2498,19 @@ ipcMain.handle('login-with-gmail', async () => {
     saveAuthState();
     startEmailMonitoring();
     // Save the authenticated email to the database
-    
-      const dbUrl = await getSecret('DATABASE_URL');
-      if (!dbUrl) {
-        throw new Error('DATABASE_URL nincs beállítva Keytarban!');
-      }
-
-    const emailInUse = activationEmail || null;
-    const connection = await mysql.createConnection(dbUrl); // URL alapú csatlakozás
-    const [result] = await connection.execute(
-      'UPDATE user SET emailInUse = ? WHERE email = ?;',
-      [email, emailInUse]
-    );
-    console.log("Email címek az adatbézisban frissítve:", email, emailInUse); 
-    console.log('[SQL] UPDATE result:', result); // LOG
-    await connection.end();
+    try {
+      const emailInUse = activationEmail || null;
+      const connection = await createDbConnectionWithFallback();
+      const [result] = await connection.execute(
+        'UPDATE user SET emailInUse = ? WHERE email = ?;',
+        [email, emailInUse]
+      );
+      console.log("Email címek az adatbézisban frissítve:", email, emailInUse); 
+      console.log('[SQL] UPDATE result:', result); // LOG
+      await connection.end();
+    } catch (dbErr) {
+      console.error('[gmail-login] DB emailInUse update error:', dbErr);
+    }
 
   } catch (error) {
     console.error('Gmail bejelentkezési hiba:', error);
@@ -2562,19 +2581,18 @@ ipcMain.handle('login-with-smtp', async (event, config) => {
         }
       };
 
-        const dbUrl = await getSecret('DATABASE_URL');
-        if (!dbUrl) {
-          throw new Error('DATABASE_URL nincs beállítva Keytarban!');
-        }
-
-      const emailInUse = activationEmail || null;
-      const connection = await mysql.createConnection(dbUrl); // URL alapú csatlakozás
-      const [result] = await connection.execute(
-        'UPDATE user SET emailInUse = ? WHERE email = ?;',
-        [config.email, emailInUse]
-      );
-      console.log('[SQL] UPDATE result:', result); // LOG
-      await connection.end();
+      try {
+        const emailInUse = activationEmail || null;
+        const connection = await createDbConnectionWithFallback();
+        const [result] = await connection.execute(
+          'UPDATE user SET emailInUse = ? WHERE email = ?;',
+          [config.email, emailInUse]
+        );
+        console.log('[SQL] UPDATE result:', result); // LOG
+        await connection.end();
+      } catch (dbErr) {
+        console.error('[smtp-login] DB emailInUse update error:', dbErr);
+      }
 
       saveAuthState();
       startEmailMonitoring();
@@ -2611,27 +2629,23 @@ ipcMain.handle('logout', async () => {
     // 1) Clear the row identified by activationEmail (the licence owner's email) if available
     // 2) Clear any row that currently has emailInUse equal to the logged-in mailbox address
     try {
-      const dbUrl = await getSecret('DATABASE_URL');
-      if (dbUrl) {
-        let connection;
-        try {
-          connection = await mysql.createConnection(dbUrl);
+      let connection;
+      try {
+        connection = await createDbConnectionWithFallback();
 
-          // 1) Clear by activationEmail (this is how login sets the row)
-          if (activationEmail) {
-            try {
-              const [res] = await connection.execute('UPDATE user SET emailInUse = NULL WHERE email = ?;', [activationEmail]);
-              console.log('[logout] Cleared emailInUse for licence owner (activationEmail):', activationEmail, 'result:', res);
-            } catch (dbErr) {
-              console.error('[logout] Failed to clear emailInUse by activationEmail:', dbErr);
-            }
+        // 1) Clear by activationEmail (this is how login sets the row)
+        if (activationEmail) {
+          try {
+            const [res] = await connection.execute('UPDATE user SET emailInUse = NULL WHERE email = ?;', [activationEmail]);
+            console.log('[logout] Cleared emailInUse for licence owner (activationEmail):', activationEmail, 'result:', res);
+          } catch (dbErr) {
+            console.error('[logout] Failed to clear emailInUse by activationEmail:', dbErr);
           }
-          }
-         catch (connErr) {
-          console.error('[logout] DB connection error while clearing emailInUse:', connErr);
-        } finally {
-          try { if (connection) await connection.end(); } catch (e) {}
         }
+      } catch (connErr) {
+        console.error('[logout] DB connection error while clearing emailInUse:', connErr);
+      } finally {
+        try { if (connection) await connection.end(); } catch (e) {}
       }
     } catch (err) {
       console.error('[logout] Error while attempting to clear emailInUse:', err);
@@ -2895,12 +2909,7 @@ async function describeImagesWithAI(images) {
 ipcMain.handle('check-licence', async (event, { email, licenceKey }) => {
   let connection;
   try {
-    const dbUrl = await getSecret('DATABASE_URL');
-    if (!dbUrl) {
-      throw new Error('DATABASE_URL nincs beállítva Keytarban!');
-    }
-
-    connection = await mysql.createConnection(dbUrl); // URL alapú csatlakozás
+    connection = await createDbConnectionWithFallback();
     const [rows] = await connection.execute(
       'SELECT id FROM user WHERE email = ? AND licence = ? LIMIT 1',
       [email, licenceKey]
@@ -3110,12 +3119,7 @@ ipcMain.handle('is-licence-activated', async (event, payload) => {
   const { email, licenceKey } = payload || {};
   let connection;
   try {
-    const dbUrl = await getSecret('DATABASE_URL');
-    if (!dbUrl) {
-      throw new Error('DATABASE_URL nincs beállítva Keytarban!');
-    }
-
-    connection = await mysql.createConnection(dbUrl); // URL alapú csatlakozás
+    connection = await createDbConnectionWithFallback();
     const [rows] = await connection.execute(
       'SELECT licenceActivated FROM user WHERE email = ? AND licence = ? LIMIT 1',
       [email, licenceKey]
@@ -3142,9 +3146,7 @@ ipcMain.handle('activate-licence', async (event, payload) => {
   const { email, licenceKey } = payload || {};
   let connection;
   try {
-    const dbUrl = await getSecret('DATABASE_URL');
-    if (!dbUrl) throw new Error('DATABASE_URL nincs beállítva Keytarban!');
-    connection = await mysql.createConnection(dbUrl);
+    connection = await createDbConnectionWithFallback();
     const [result] = await connection.execute(
       'UPDATE user SET licenceActivated = 1, TrialEndDate = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE email = ? AND licence = ?',
       [email, licenceKey]

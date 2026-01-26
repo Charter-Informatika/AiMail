@@ -5,12 +5,6 @@ import OpenAI from 'openai';
 import { getSecret } from '../utils/keytarHelper.js';
 import crypto from 'crypto';
 
-// Simple char-based chunker with overlap. Tokenization libraries aren't
-// available here, so we use a conservative char->token heuristic (1 token ~= 4 chars).
-// Lossless chunker that returns chunks with start/end indices so the
-// original text can be reconstructed exactly. Uses a sliding-window with
-// overlap but prefers sentence-boundary cuts when possible to avoid
-// breaking sentences. Parameters are in characters (maxChars, overlapChars).
 function chunkText(text, maxChars = 8000, overlapChars = 800) {
   if (!text) return [];
   const len = text.length;

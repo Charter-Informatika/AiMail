@@ -120,11 +120,13 @@
     "imap": "^0.8.19",
     "keytar": "^7.9.0",
     "mailparser": "^3.7.3",
+    "mammoth": "^1.4.19",
     "markdown-to-jsx": "^7.7.13",
-    "mysql2": "^3.14.5",
+    "mysql2": "^3.16.1",
     "node-imap": "^0.9.6",
     "nodemailer": "^7.0.3",
     "openai": "^4.103.0",
+    "pdf-parse": "^1.1.1",
     "react": "^19.1.0",
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.1.0",
@@ -133,9 +135,7 @@
     "rfc2047": "^4.0.1",
     "style-loader": "^4.0.0",
     "update-electron-app": "^3.1.1",
-    "xlsx": "^0.18.5",
-    "pdf-parse": "^1.1.1",
-    "mammoth": "^1.4.19"
+    "xlsx": "^0.18.5"
   },
   "config": {
     "forge": {

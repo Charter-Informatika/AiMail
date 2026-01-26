@@ -2,7 +2,7 @@ import mysql from 'mysql2';
 
 // Adatbázis kapcsolat beállításai
 const connection = mysql.createConnection({
-  host: 'rendszer.okosmail.hu',
+  host: '192.168.88.58',
   user: 'aimail',
   password: 'kfawdwagfaw!378',
   database: 'aimail',
