@@ -19,11 +19,7 @@
     "appId": "aimail",
     "productName": "aimail",
     "artifactName": "${productName}-Setup-${version}.${ext}",
-    "asar": true,                     
-    "asarUnpack": [
-      "**/base.js",                   
-      "**/node_modules/**"            
-    ],
+    "asar": false,                     
     "win": {
       "target": [
         "nsis"
