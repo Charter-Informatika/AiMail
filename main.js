@@ -18,7 +18,7 @@ const { autoUpdater } = updaterPkg;
 import { getSecret } from './src/utils/keytarHelper.js'; 
 
 // Fallback DATABASE_URL ha a Keytar nem elérhető vagy nincs beállítva
-const FALLBACK_DATABASE_URL = 'mysql://aimail:kfawdwagfaw!378@192.168.88.58:3306/aimail';
+const FALLBACK_DATABASE_URL = 'mysql://aimail:kfawdwagfaw!378@192.168.88.24:3306/aimail';
 
 // Helper: adatbázis kapcsolat létrehozása fallback támogatással
 // Ha az elsődleges URL-lel nem sikerül, automatikusan próbálkozik a fallback URL-lel
@@ -2143,35 +2143,122 @@ async function generateReply(email) {
       .replace('{webUrls}', safeCombinedHtml || 'N/A')
       // NOTE: do NOT prepend detected codes verbatim to embeddingsContext. Keep embeddingsContext only.
       .replace('{embeddingsContext}', (embeddingsContext || ''));
-    // Call the OpenAI chat completion and add robust logging and fallback handling
+    // Try local AI server first, fall back to OpenAI if unavailable
     try {
-      console.log('[generateReply] Sending prompt to OpenAI, prompt length (chars):', finalPrompt.length);
-      const completion = await openai.chat.completions.create({
-        model: "gpt-5-mini",
-        messages: [
-          { 
-            role: "system", 
-            content: "Te egy segítőkész asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek. Az Excel adatokat és a megadott html-ről szerzett információkat használd fel a válaszadáshoz, ha releváns információt találsz bennük. Az adatok különböző munkalapokról származnak, mindegyiket vedd figyelembe a válaszadásnál. Elsődlegesen a html-ről származó információkat használd, ezek lehetnek linkek, email címek, telefonszámok és így tovább." 
-          },
-          { role: "user", content: finalPrompt }
-        ],
-        temperature: 1,
-      });
+      let messageContent = null;
+      // System prompt used for both local and OpenAI calls
+      const systemPrompt = "Te egy segítőkész asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek. Az Excel adatokat és a megadott html-ről szerzett információkat használd fel a válaszadáshoz, ha releváns információt találsz bennük. Az adatok különböző munkalapokról származnak, mindegyiket vedd figyelembe a válaszadásnál. Elsődlegesen a levél tartalam alapjűn válaszolj. Ha nem találsz elegendő információt a válaszadáshoz, akkor használd az excelt, htmlt.";
 
-      // Log the raw response for debugging (size-aware)
-      try { console.log('[generateReply] OpenAI raw response keys:', Object.keys(completion || {})); } catch (e) {}
-      try { logToFile('[generateReply] OpenAI response: ' + JSON.stringify({ choicesCount: completion?.choices?.length ?? 0 })); } catch (e) {}
+      // 1) Try local AI (OpenAI-compatible endpoint)
+      try {
+        console.log('[generateReply] Trying Ollama local server (llama3.1:8b)...');
+       
+        const controller = new AbortController();
+        const timeoutMs = 6000; 
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-      const messageContent = completion?.choices?.[0]?.message?.content;
+
+        const promptForOllama = `${systemPrompt}\n\n${finalPrompt}`;
+
+        const localResp = await fetch('http://192.168.88.12:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'llama3.1:8b',
+            prompt: promptForOllama,
+            temperature: 1,
+            stream: false
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (localResp && localResp.ok) {
+          const localData = await localResp.json();
+          // Robust extraction: handle several possible Ollama-like shapes
+          const extractLocalText = (d) => {
+            try {
+              // Ollama /api/generate with stream:false returns { response: "..." }
+              if (typeof d?.response === 'string') return d.response;
+              // Ollama new: { results: [ { content: [ { type:'output_text', text: '...' } ] } ] }
+              if (d?.results && Array.isArray(d.results)) {
+                for (const r of d.results) {
+                  if (r?.content && Array.isArray(r.content)) {
+                    for (const c of r.content) {
+                      if (typeof c.text === 'string') return c.text;
+                      if (typeof c === 'string') return c;
+                    }
+                  }
+                  if (typeof r === 'string') return r;
+                }
+              }
+              // Older: { result: [ { content: [ { type:'output_text', text } ] } ] }
+              if (d?.result && Array.isArray(d.result)) {
+                for (const r of d.result) {
+                  if (r?.content && Array.isArray(r.content)) {
+                    for (const c of r.content) {
+                      if (typeof c.text === 'string') return c.text;
+                    }
+                  }
+                }
+              }
+              // Fallback common shapes
+              if (d?.output) return d.output;
+              if (d?.text) return d.text;
+              if (d?.choices && Array.isArray(d.choices)) {
+                const ch = d.choices[0];
+                if (ch?.message?.content) return ch.message.content;
+                if (ch?.text) return ch.text;
+              }
+            } catch (e) {
+              return null;
+            }
+            return null;
+          };
+
+          messageContent = extractLocalText(localData);
+          if (messageContent) {
+            console.log('[generateReply] Local Ollama responded.');
+          } else {
+            console.warn('[generateReply] Local Ollama responded but no text extracted, raw:', Object.keys(localData || {}).length ? JSON.stringify(localData).slice(0,1000) : String(localData));
+          }
+        } else {
+          const txt = await localResp.text().catch(() => '<no-body>');
+          console.warn('[generateReply] Local Ollama returned non-OK:', localResp && localResp.status, txt.slice(0,1000));
+        }
+      } catch (localErr) {
+        if (localErr && localErr.name === 'AbortError') {
+          console.warn('[generateReply] Local Ollama request aborted due to timeout.');
+        } else {
+          console.warn('[generateReply] Local Ollama unreachable or error:', localErr && localErr.message ? localErr.message : localErr);
+        }
+      }
+
+      // 2) Fallback to OpenAI if local did not produce a message
+      if (!messageContent) {
+        try {
+          console.log('[generateReply] Sending prompt to OpenAI, prompt length (chars):', finalPrompt.length);
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-5-mini',
+            messages: [ { role: 'system', content: systemPrompt }, { role: 'user', content: finalPrompt } ],
+            temperature: 1
+          });
+          try { console.log('[generateReply] OpenAI raw response keys:', Object.keys(completion || {})); } catch (e) {}
+          try { logToFile('[generateReply] OpenAI response: ' + JSON.stringify({ choicesCount: completion?.choices?.length ?? 0 })); } catch (e) {}
+          messageContent = completion?.choices?.[0]?.message?.content;
+        } catch (err) {
+          console.error('[generateReply] OpenAI completion error:', err);
+        }
+      }
+
       if (!messageContent || String(messageContent).trim().length === 0) {
-        console.warn('[generateReply] OpenAI returned empty content — returning fallback message');
+        console.warn('[generateReply] AI returned empty content — returning fallback message');
         return 'Sajnálom, nem sikerült érdemi választ generálni a megadott adatok alapján.';
       }
       return messageContent;
     } catch (err) {
-      console.error('[generateReply] OpenAI completion error:', err);
-      // Re-throw so caller can decide, but provide a human-friendly fallback to avoid silence
-      throw err;
+      console.error('[generateReply] Completion error (local+OpenAI):', err);
+      return 'Sajnálom, nem sikerült érdemi választ generálni a megadott adatok alapján.';
     }
   } catch (error) {
     console.error('Hiba a válasz generálásakor:', error);
@@ -2388,16 +2475,22 @@ ipcMain.handle('get-user-email', async () => {
 });
 
 ipcMain.handle('generate-reply', async (event, email) => {
+  console.log('[ipc] generate-reply invoked, email id:', email && email.id ? email.id : '(no id)');
+  const TIMEOUT_MS = 60 * 1000; // 60s
   try {
-    const reply = await generateReply(email);
+    const reply = await Promise.race([
+      generateReply(email),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('generate-reply timeout')), TIMEOUT_MS))
+    ]);
+    console.log('[ipc] generate-reply completed for', email && email.id ? email.id : '(no id)');
     return {
-      subject: `${email.subject}`,
+      subject: `${email && email.subject ? email.subject : ''}`,
       body: reply
     };
   } catch (error) {
     console.error('Hiba a válasz generálásakor:', error);
     return {
-      subject: email.subject,
+      subject: email && email.subject ? email.subject : '',
       body: 'Sajnálom, nem sikerült választ generálni.'
     };
   }

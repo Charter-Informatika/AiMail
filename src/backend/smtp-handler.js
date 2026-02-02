@@ -385,7 +385,7 @@ class SmtpEmailHandler {
 
         const processMailbox = () => {
           // Try to read `fromDate` from settings.json (format: YYYY-MM-DD)
-          // and convert it to IMAP search format (DD-MMM-YYYY) for SINCE.
+          // and use a Date object for the SINCE search criterion.
           let searchCriteria = ['ALL'];
           try {
             const settingsPath = path.resolve(process.cwd(), 'settings.json');
@@ -393,10 +393,9 @@ class SmtpEmailHandler {
             const settings = JSON.parse(raw);
             const fromDateStr = settings?.fromDate;
             if (fromDateStr && /^\d{4}-\d{2}-\d{2}$/.test(fromDateStr)) {
-              const [y, m, d] = fromDateStr.split('-');
-              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const imapDate = `${parseInt(d, 10)}-${months[parseInt(m, 10) - 1]}-${y}`;
-              searchCriteria = ['SINCE', imapDate];
+              // IMAP library expects a Date object for SINCE criterion
+              const sinceDate = new Date(fromDateStr);
+              searchCriteria = [['SINCE', sinceDate]];
             }
           } catch (e) {
             console.error('[AIServiceApp][smtp-handler.js] settings.json read error:', e.message);
