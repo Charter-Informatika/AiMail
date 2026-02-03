@@ -6,8 +6,253 @@ import path from 'path';
 import pdfParse from 'pdf-parse';
 import XLSX from 'xlsx';
 import mammoth from 'mammoth';
+import { htmlToText } from 'html-to-text';
+import * as cheerio from 'cheerio';
 import kbManager from './kb-manager.js';
 import { createAndStoreEmbeddingsForLongText } from './embeddings-helper.js';
+import { describeImage } from './local-ai-helper.js';
+
+function decodeRFC2047(subject) {
+  if (!subject) return '';
+  return subject.replace(/=\?([^?]+)\?([BbQq])\?([^?]+)\?=/g, (match, charset, encoding, text) => {
+    if (encoding.toUpperCase() === 'B') {
+      const buff = Buffer.from(text, 'base64');
+      return buff.toString(charset);
+    } else if (encoding.toUpperCase() === 'Q') {
+      const str = text.replace(/_/g, ' ');
+      const buff = Buffer.from(str.replace(/=([A-Fa-f0-9]{2})/g, (m, p1) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }), 'binary');
+      return buff.toString(charset);
+    }
+    return text;
+  });
+}
+
+
+function htmlToTextWithTables(html) {
+  try {
+    let text = htmlToText(html, { wordwrap: 130 });
+    let $ = null;
+    try { $ = cheerio.load(html); } catch (e) { $ = null; }
+    if ($) {
+      const tables = $('table');
+      if (tables.length > 0) {
+        text += '\n\n[TABLES]\n';
+        tables.each((ti, table) => {
+          const rows = [];
+          $(table).find('tr').each((ri, tr) => {
+            const cells = [];
+            $(tr).find('th,td').each((ci, cell) => {
+              let cellText = $(cell).text().trim().replace(/\s+/g, ' ');
+              cellText = cellText.replace(/\n+/g, ' ');
+              cells.push(cellText);
+            });
+            if (cells.length) rows.push(cells.join('\t'));
+          });
+          if (rows.length) {
+            text += `Table ${ti + 1}:\n` + rows.join('\n') + '\n\n';
+          }
+        });
+      }
+    }
+    return text;
+  } catch (e) {
+    try { return htmlToText(html); } catch { return '(html parsing error)'; }
+  }
+}
+
+/**
+ * Csatolt dokumentum feldolgozása és beágyazása (PDF, Excel, Word, EML)
+ * @param {Buffer} content - Fájl tartalma
+ * @param {string} filename - Fájlnév
+ * @param {string} mimeType - MIME típus
+ * @param {object} emailMeta - Email metaadatok (from, subject, date)
+ * @param {string} sourceId - Forrás azonosító
+ */
+async function processAndEmbedAttachment(content, filename, mimeType, emailMeta = {}, sourceId = null) {
+  try {
+    const lower = (filename || '').toLowerCase();
+    const mt = (mimeType || '').toLowerCase();
+    let extracted = '';
+
+
+    if (lower.endsWith('.pdf') || mt.includes('pdf')) {
+      try {
+        const pdfRes = await pdfParse(content);
+        extracted = pdfRes && pdfRes.text ? String(pdfRes.text) : '';
+      } catch (pe) {
+        console.error('[smtp-handler] pdf parse error:', pe?.message || pe);
+      }
+    }
+
+
+    else if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || mt.includes('spreadsheet')) {
+      try {
+        const wb = XLSX.read(content, { type: 'buffer' });
+        const sheets = wb.SheetNames || [];
+        const parts = [];
+        const cellKBs = [];
+
+        for (const sname of sheets) {
+          try {
+            const sh = wb.Sheets[sname];
+            const csv = XLSX.utils.sheet_to_csv(sh || {});
+            if (csv) parts.push(`Sheet: ${sname}\n${csv}`);
+
+ 
+            const rows = XLSX.utils.sheet_to_json(sh || {}, { header: 1, raw: false, defval: '' });
+            for (let r = 0; r < rows.length; r++) {
+              const row = rows[r] || [];
+              for (let c = 0; c < row.length; c++) {
+                try {
+                  const val = row[c];
+                  if (val === null || val === undefined) continue;
+                  const sval = String(val).trim();
+                  if (!sval) continue;
+                  
+                  let addr = null;
+                  try { addr = XLSX.utils.encode_cell({ r, c }); } catch (ea) { addr = `${r + 1}:${c + 1}`; }
+                  
+                  let col = c + 1;
+                  let colLetter = '';
+                  while (col > 0) {
+                    const rem = (col - 1) % 26;
+                    colLetter = String.fromCharCode(65 + rem) + colLetter;
+                    col = Math.floor((col - 1) / 26);
+                  }
+                  
+                  const cellAddress = `${sname}!${colLetter}${r + 1}`;
+                  const cellId = `${sourceId || Date.now()}-att-${filename}-sheet-${sname}-cell-${addr}`;
+                  
+                  cellKBs.push({
+                    id: cellId,
+                    from: emailMeta.from || '',
+                    subject: emailMeta.subject || `Attachment: ${filename} [${sname} ${addr}]`,
+                    date: emailMeta.date || new Date().toISOString(),
+                    body: sval,
+                    sheet: sname,
+                    colLetter,
+                    row: r + 1,
+                    cellAddress
+                  });
+                } catch (cellErr) {
+                  // ignore single cell errors
+                }
+              }
+            }
+          } catch (se) { /* ignore sheet errors */ }
+        }
+        extracted = parts.join('\n\n');
+
+        // Add per-cell KB entries
+        if (cellKBs.length) {
+          try {
+            await kbManager.addEmails(cellKBs);
+          } catch (kbErr) {
+            console.error('[smtp-handler] failed to add per-cell KB entries:', kbErr?.message || kbErr);
+          }
+        }
+      } catch (xe) {
+        console.error('[smtp-handler] xlsx parse error:', xe?.message || xe);
+      }
+    }
+    // Word dokumentum feldolgozás
+    else if (lower.endsWith('.docx') || mt.includes('word')) {
+      try {
+        const mm = await mammoth.extractRawText({ buffer: content });
+        extracted = mm && mm.value ? String(mm.value) : '';
+      } catch (me) {
+        console.error('[smtp-handler] mammoth parse error:', me?.message || me);
+      }
+    }
+    // EML (beágyazott email) feldolgozás
+    else if (lower.endsWith('.eml') || mt.includes('message/rfc822')) {
+      try {
+        const parsedAtt = await simpleParser(content);
+        extracted = parsedAtt && parsedAtt.text ? String(parsedAtt.text) : '';
+      } catch (ee) {
+        console.error('[smtp-handler] eml parse error:', ee?.message || ee);
+      }
+    }
+    // Szöveges fájlok
+    else if (mt.startsWith('text/')) {
+      try {
+        extracted = content.toString('utf8');
+      } catch (te) {
+        console.error('[smtp-handler] text attachment read error:', te?.message || te);
+      }
+    }
+
+    // Ha van kinyert szöveg, hozzáadjuk a KB-hez és készítünk embeddingeket
+    if (extracted && extracted.length > 10) {
+      try {
+        const kbEmail = {
+          id: `${sourceId || Date.now()}-att-${filename}`,
+          from: emailMeta.from || '',
+          subject: emailMeta.subject || `Attachment: ${filename}`,
+          date: emailMeta.date || new Date().toISOString(),
+          body: extracted
+        };
+        await kbManager.addEmails([kbEmail]);
+
+        // Embeddings létrehozása
+        try {
+          await createAndStoreEmbeddingsForLongText(extracted, { 
+            filename, 
+            sourceId: sourceId || null, 
+            maxTokens: 2000 
+          });
+        } catch (embErr) {
+          console.error('[smtp-handler] embedding helper error:', embErr?.message || embErr);
+        }
+      } catch (ke) {
+        console.error('[smtp-handler] kbManager.addEmails error:', ke?.message || ke);
+      }
+    }
+
+    return extracted;
+  } catch (err) {
+    console.error('[smtp-handler] processAndEmbedAttachment error:', err?.message || err);
+    return null;
+  }
+}
+
+function extractInlineImagesFromHtml(html) {
+  const images = [];
+  if (!html) return images;
+  
+  try {
+    // Base64 inline képek keresése
+    const regex = /data:(image\/[^;]+);base64,([^"'\s>]+)/gi;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      images.push({
+        mimeType: match[1],
+        data: match[2],
+        base64: match[0]
+      });
+    }
+  } catch (e) {
+    console.error('[smtp-handler] extractInlineImagesFromHtml error:', e?.message || e);
+  }
+  
+  return images;
+}
+
+function extractBodyFromParsed(parsed) {
+  // Ha van text, használjuk azt
+  if (parsed.text && parsed.text.trim().length > 0) {
+    return parsed.text;
+  }
+  
+  // Ha csak HTML van, konvertáljuk
+  if (parsed.html) {
+    return htmlToTextWithTables(parsed.html);
+  }
+  
+  return '(nincs tartalom)';
+}
 
 // Cache configuration
 const FETCH_CONFIG = {
@@ -62,9 +307,7 @@ class SmtpEmailHandler {
     return Array.from(this._emailCache.values());
   }
   
-  /**
-   * Clear the email cache
-   */
+
   clearCache() {
     this._emailCache.clear();
     this._cachedIds.clear();
@@ -276,8 +519,7 @@ class SmtpEmailHandler {
             return reject(err);
           }
           console.log('[SmtpEmailHandler] INBOX opened for IDLE monitoring');
-          // The connection is now in IDLE mode (with keepalive: true)
-          // 'mail' events will be triggered when new emails arrive
+
           resolve();
         });
       };
@@ -485,15 +727,21 @@ class SmtpEmailHandler {
               msg.once('end', () => {
                 const p = simpleParser(raw)
                   .then(parsed => {
+                    // RFC2047 dekódolás a tárgyra
+                    const decodedSubject = decodeRFC2047(parsed.subject || '');
+                    
+                    // Body kinyerése (text preferált, HTML fallback táblázatkezeléssel)
+                    const body = extractBodyFromParsed(parsed);
+                    
                     const email = {
                       id: uid,
                       from: parsed.from?.text || '',
-                      subject: parsed.subject || '',
+                      subject: decodedSubject,
                       date: parsed.date ? parsed.date.toISOString() : '',
-                      body: parsed.text || '',
+                      body: body,
                       html: parsed.html || null,
                       text: parsed.text || '',
-                      snippet: (parsed.text || '').slice(0, 100),
+                      snippet: body.slice(0, 100),
                       _cachedAt: Date.now()
                     };
                     emails.push(email);
@@ -612,8 +860,8 @@ class SmtpEmailHandler {
               });
 
               msg.once('end', () => {
-                const p = simpleParser(raw)
-                  .then(parsed => {
+                const p = (async () => {
+                  const parsed = await simpleParser(raw);
                     // Save attachments (if any) to attachments folder and include metadata
                     const attachmentsArr = [];
                     try {
@@ -786,20 +1034,83 @@ class SmtpEmailHandler {
                       console.error('Error processing parsed.attachments (recent):', eatt && eatt.message ? eatt.message : eatt);
                     }
 
+                    // Képek kinyerése és AI feldolgozása (hasonlóan a Gmail-hez)
+                    const images = [];
+                    const aiImageResponses = [];
+                    try {
+                      if (Array.isArray(parsed.attachments)) {
+                        for (const att of parsed.attachments) {
+                          const mt = (att.contentType || '').toLowerCase();
+                          if (mt.startsWith('image/')) {
+                            try {
+                              const base64Data = Buffer.from(att.content).toString('base64');
+                              const fullBase64 = `data:${att.contentType};base64,${base64Data}`;
+                              images.push({
+                                mimeType: att.contentType,
+                                data: base64Data,
+                                base64: fullBase64
+                              });
+                              
+                              // AI képleírás - használjuk a local-ai-helper-t
+                              try {
+                                const desc = await describeImage(fullBase64, 'Mit látsz ezen a képen?');
+                                aiImageResponses.push({
+                                  choices: [{ message: { content: desc } }]
+                                });
+                                console.log(`[smtp-handler] Kép feldolgozva: ${att.filename || 'ismeretlen'}`);
+                              } catch (aiErr) {
+                                console.error('[smtp-handler] AI képleírás hiba:', aiErr?.message || aiErr);
+                                aiImageResponses.push({ error: true, details: aiErr?.message || 'AI hiba' });
+                              }
+                            } catch (imgErr) {
+                              console.error('[smtp-handler] Kép feldolgozási hiba:', imgErr?.message || imgErr);
+                            }
+                          }
+                        }
+                      }
+                    } catch (imgProcErr) {
+                      console.error('[smtp-handler] Képfeldolgozás hiba:', imgProcErr?.message || imgProcErr);
+                    }
+
+                    // Inline képek kinyerése HTML-ből is
+                    try {
+                      const inlineImages = extractInlineImagesFromHtml(parsed.html);
+                      for (const img of inlineImages) {
+                        if (!images.find(i => i.data === img.data)) {
+                          images.push(img);
+                          try {
+                            const desc = await describeImage(img.base64, 'Mit látsz ezen a képen?');
+                            aiImageResponses.push({
+                              choices: [{ message: { content: desc } }]
+                            });
+                          } catch (aiErr) {
+                            aiImageResponses.push({ error: true, details: aiErr?.message || 'AI hiba' });
+                          }
+                        }
+                      }
+                    } catch (inlineErr) {
+                      console.error('[smtp-handler] Inline kép feldolgozási hiba:', inlineErr?.message || inlineErr);
+                    }
+
+                    // RFC2047 dekódolás és body kinyerés
+                    const decodedSubject = decodeRFC2047(parsed.subject || '');
+                    const body = extractBodyFromParsed(parsed);
+
                     emails.push({
                       id: uid,
                       from: parsed.from?.text || '',
-                      subject: parsed.subject || '',
+                      subject: decodedSubject,
                       date: parsed.date ? parsed.date.toISOString() : '',
-                      body: parsed.text || '',
+                      body: body,
                       html: parsed.html || null,
                       text: parsed.text || '',
                       // Return the full text as snippet (no truncation)
-                      snippet: parsed.text || '',
-                      attachments: attachmentsArr
+                      snippet: body,
+                      attachments: attachmentsArr,
+                      images: images,
+                      aiImageResponses: aiImageResponses
                     });
-                  })
-                  .catch(e => console.error('Mail parse hiba (recent):', e));
+                })().catch(e => console.error('Mail parse hiba (recent):', e));
                 parsePromises.push(p);
               });
             });
@@ -968,16 +1279,103 @@ class SmtpEmailHandler {
                       console.error('Error processing parsed.attachments (getEmailById):', eatt && eatt.message ? eatt.message : eatt);
                     }
 
+                    // Képek kinyerése és AI feldolgozása (hasonlóan a Gmail-hez)
+                    const images = [];
+                    const aiImageResponses = [];
+                    try {
+                      if (Array.isArray(parsed.attachments)) {
+                        for (const att of parsed.attachments) {
+                          const mt = (att.contentType || '').toLowerCase();
+                          if (mt.startsWith('image/')) {
+                            try {
+                              const base64Data = Buffer.from(att.content).toString('base64');
+                              const fullBase64 = `data:${att.contentType};base64,${base64Data}`;
+                              images.push({
+                                mimeType: att.contentType,
+                                data: base64Data,
+                                base64: fullBase64
+                              });
+                              
+                              // AI képleírás - használjuk a local-ai-helper-t
+                              try {
+                                const desc = await describeImage(fullBase64, 'Mit látsz ezen a képen?');
+                                aiImageResponses.push({
+                                  choices: [{ message: { content: desc } }]
+                                });
+                                console.log(`[smtp-handler] Kép feldolgozva (getEmailById): ${att.filename || 'ismeretlen'}`);
+                              } catch (aiErr) {
+                                console.error('[smtp-handler] AI képleírás hiba (getEmailById):', aiErr?.message || aiErr);
+                                aiImageResponses.push({ error: true, details: aiErr?.message || 'AI hiba' });
+                              }
+                            } catch (imgErr) {
+                              console.error('[smtp-handler] Kép feldolgozási hiba (getEmailById):', imgErr?.message || imgErr);
+                            }
+                          }
+                        }
+                      }
+                    } catch (imgProcErr) {
+                      console.error('[smtp-handler] Képfeldolgozás hiba (getEmailById):', imgProcErr?.message || imgProcErr);
+                    }
+
+                    // Inline képek kinyerése HTML-ből
+                    try {
+                      const inlineImages = extractInlineImagesFromHtml(parsed.html);
+                      for (const img of inlineImages) {
+                        if (!images.find(i => i.data === img.data)) {
+                          images.push(img);
+                          try {
+                            const desc = await describeImage(img.base64, 'Mit látsz ezen a képen?');
+                            aiImageResponses.push({
+                              choices: [{ message: { content: desc } }]
+                            });
+                          } catch (aiErr) {
+                            aiImageResponses.push({ error: true, details: aiErr?.message || 'AI hiba' });
+                          }
+                        }
+                      }
+                    } catch (inlineErr) {
+                      console.error('[smtp-handler] Inline kép feldolgozási hiba (getEmailById):', inlineErr?.message || inlineErr);
+                    }
+
+                    // Csatolt dokumentumok feldolgozása és beágyazása (PDF, Excel, Word, EML)
+                    const emailMeta = {
+                      from: parsed.from?.text || '',
+                      subject: parsed.subject || '',
+                      date: parsed.date ? parsed.date.toISOString() : new Date().toISOString()
+                    };
+                    for (const att of attachmentsArr) {
+                      const lower = (att.filename || '').toLowerCase();
+                      const mt = (att.mimeType || '').toLowerCase();
+                      if (lower.endsWith('.pdf') || lower.endsWith('.xlsx') || lower.endsWith('.xls') || 
+                          lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.eml') ||
+                          mt.includes('pdf') || mt.includes('spreadsheet') || mt.includes('word') || mt.includes('message/rfc822')) {
+                        try {
+                          const content = fs.readFileSync(att.path);
+                          await processAndEmbedAttachment(content, att.filename, att.mimeType, emailMeta, uid || id);
+                          // Töröljük a feldolgozott fájlt
+                          try { fs.unlinkSync(att.path); } catch (delErr) { /* ignore */ }
+                        } catch (procErr) {
+                          console.error('[smtp-handler] Attachment processing error (getEmailById):', procErr?.message || procErr);
+                        }
+                      }
+                    }
+
+                    // RFC2047 dekódolás és body kinyerés
+                    const decodedSubject = decodeRFC2047(parsed.subject || '');
+                    const body = extractBodyFromParsed(parsed);
+
                     resolve({
                       id: uid,
                       from: parsed.from?.text || '',
-                      subject: parsed.subject || '',
+                      subject: decodedSubject,
                       date: parsed.date ? parsed.date.toISOString() : '',
-                      body: parsed.text || '',
+                      body: body,
                       html: parsed.html || null,
                       text: parsed.text || '',
                       raw,
-                      attachments: attachmentsArr
+                      attachments: attachmentsArr,
+                      images: images,
+                      aiImageResponses: aiImageResponses
                     });
                 } catch (e) {
                   reject(e);

@@ -7,8 +7,8 @@ const OLLAMA_TIMEOUT_MS = 30000;
 
 
 const LOCAL_CHAT_MODEL = 'llama3.1:8b';
-const LOCAL_VISION_MODEL = 'llava:13b'; 
-const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text'; 
+const LOCAL_VISION_MODEL = 'llava:7b'; 
+const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text:latest'; 
 
 const OPENAI_CHAT_MODEL = 'gpt-4o-mini';
 const OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
@@ -216,34 +216,33 @@ async function createEmbedding(input) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
-    const embeddings = [];
-    for (const text of inputs) {
-      const response = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: LOCAL_EMBEDDING_MODEL,
-          prompt: String(text)
-        }),
-        signal: controller.signal
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.embedding && Array.isArray(data.embedding)) {
-          embeddings.push(data.embedding);
-        } else {
-          throw new Error('Invalid embedding response from Ollama');
-        }
-      } else {
-        throw new Error(`Ollama embedding failed with status: ${response.status}`);
-      }
-    }
+    // Use the new /api/embed endpoint which supports batch input
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: LOCAL_EMBEDDING_MODEL,
+        input: inputs
+      }),
+      signal: controller.signal
+    });
     clearTimeout(timeout);
 
-    if (embeddings.length === inputs.length) {
-      console.log('[local-ai-helper] Local Ollama embeddings succeeded.');
-      return isBatch ? embeddings : embeddings[0];
+    if (response.ok) {
+      const data = await response.json();
+      // New API returns { embeddings: [[...], [...]] }
+      if (data?.embeddings && Array.isArray(data.embeddings)) {
+        const embeddings = data.embeddings;
+
+        if (embeddings.length === inputs.length) {
+          console.log('[local-ai-helper] Local Ollama embeddings succeeded.');
+          return isBatch ? embeddings : embeddings[0];
+        }
+      } else {
+        throw new Error('Invalid embedding response from Ollama - missing embeddings array');
+      }
+    } else {
+      throw new Error(`Ollama embedding failed with status: ${response.status}`);
     }
   } catch (err) {
     if (err?.name === 'AbortError') {
