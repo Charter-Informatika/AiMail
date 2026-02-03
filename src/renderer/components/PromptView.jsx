@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Button, TextField, Tabs, Tab, Grid, Stack } from '@mui/material';
+import { Box, Typography, Paper, Button, TextField, Tabs, Tab, Grid, Stack, CircularProgress } from '@mui/material';
 import CenteredLoading from './CenteredLoading';
 
 const PromptView = ({ showSnackbar }) => {
@@ -354,141 +354,138 @@ const PromptView = ({ showSnackbar }) => {
           )}
 
           {section === 'signo' && (
-            <Paper variant="outlined" sx={{ ...sectionPaperSx, position: 'relative' }}>
+            <Paper variant="outlined" sx={sectionPaperSx}>
               <Typography variant="h6" align="center" gutterBottom sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}>Signo</Typography>
-              <Grid container spacing={3} sx={{ mt: 1, alignItems: 'center' }}>
-                {/* Left column: compact controls stacked and vertically centered (make buttons smaller) */}
-                <Grid item xs={12} md={8} sx={{ display: 'flex', alignItems: 'center', pr: { md: '340px' } }}>
-                  <Stack spacing={1.5} sx={{ width: '100%', maxWidth: 520 }}>
-                    <Button
-                      variant="contained"
-                      onClick={handleImgSelect}
-                      disabled={loading}
-                      size="medium"
-                      sx={{ width: '100%', py: 1, fontSize: '0.95rem', bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' } }}
-                    >
-                      {loading ? <CircularProgress size={18} /> : 'Kép fájl kiválasztása'}
-                    </Button>
+              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3, mt: 2, alignItems: 'center', justifyContent: 'center' }}>
+                {/* Left column: controls */}
+                <Stack spacing={1.5} sx={{ width: '100%', maxWidth: 400 }}>
+                  <Button
+                    variant="contained"
+                    onClick={handleImgSelect}
+                    disabled={loading}
+                    size="medium"
+                    sx={{ width: '100%', py: 1, fontSize: '0.95rem', bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' } }}
+                  >
+                    {loading ? <CircularProgress size={18} /> : 'Kép fájl kiválasztása'}
+                  </Button>
 
-                    <Button
-                      variant="contained"
-                      onClick={handleImgDelete}
-                      disabled={loading}
-                      size="medium"
-                      sx={{ width: '100%', py: 1, fontSize: '0.95rem', bgcolor: '#d32f2f', '&:hover': { bgcolor: '#e05555' } }}
-                    >
-                      {loading ? <CircularProgress size={18} /> : 'Kép törlése'}
-                    </Button>
+                  <Button
+                    variant="contained"
+                    onClick={handleImgDelete}
+                    disabled={loading}
+                    size="medium"
+                    sx={{ width: '100%', py: 1, fontSize: '0.95rem', bgcolor: '#d32f2f', '&:hover': { bgcolor: '#e05555' } }}
+                  >
+                    {loading ? <CircularProgress size={18} /> : 'Kép törlése'}
+                  </Button>
 
-                    {selectedFileName && (
-                      <Typography sx={{ mt: 0.5, color: 'white', fontSize: { xs: '0.9rem', sm: '0.95rem' }, wordBreak: 'break-all' }}>
-                        Kiválasztott fájl: <strong>{selectedFileName}</strong>
+                  {selectedFileName && (
+                    <Typography sx={{ mt: 0.5, color: 'white', fontSize: { xs: '0.9rem', sm: '0.95rem' }, wordBreak: 'break-all', textAlign: 'center' }}>
+                      Kiválasztott fájl: <strong>{selectedFileName}</strong>
+                    </Typography>
+                  )}
+
+                  {showConfirm && (
+                    <Paper sx={{ p: 2, bgcolor: '#222', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <Typography sx={{ mb: 1.5, fontSize: '0.95rem', textAlign: 'center' }}>
+                        Figyelem! A feltöltés felülírja a meglévő signot. Biztosan szeretnéd folytatni?
                       </Typography>
-                    )}
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ justifyContent: 'center' }}>
+                        <Button
+                          variant="contained"
+                          onClick={handleConfirm}
+                          disabled={loading}
+                          size="medium"
+                          sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' }, fontSize: '0.95rem' }}
+                        >
+                          Feltöltés és felülírás
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          onClick={handleCancel}
+                          disabled={loading}
+                          size="medium"
+                          sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.2)', fontSize: '0.95rem' }}
+                        >
+                          Mégsem
+                        </Button>
+                      </Stack>
+                    </Paper>
+                  )}
+                </Stack>
 
-                    {showConfirm && (
-                      <Paper sx={{ p: 2, bgcolor: '#222', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        <Typography sx={{ mb: 1.5, fontSize: '0.95rem' }}>
-                          Figyelem! A feltöltés felülírja a meglévő signot. Biztosan szeretnéd folytatni?
-                        </Typography>
-                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                          <Button
-                            variant="contained"
-                            onClick={handleConfirm}
-                            disabled={loading}
-                            size="medium"
-                            sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' }, fontSize: '0.95rem' }}
-                          >
-                            Feltöltés és felülírás
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            onClick={handleCancel}
-                            disabled={loading}
-                            size="medium"
-                            sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.2)', fontSize: '0.95rem' }}
-                          >
-                            Mégsem
-                          </Button>
-                        </Stack>
-                      </Paper>
-                    )}
-                  </Stack>
-                </Grid>
-
-                {/* Right column: fixed 300x300 square preview aligned to the right edge */}
-                <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Box sx={{ position: 'absolute', right: 32, top: '50%', transform: 'translateY(-50%)', width: 300, height: 300, bgcolor: '#222', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px dashed rgba(255,255,255,0.06)', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.6)' }}>
-                    {signaturePreviewUrl || signatureImage ? (
-                      <img
-                        src={signaturePreviewUrl || signatureImage}
-                        alt="Preview"
-                        style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-                      />
-                    ) : (
-                      <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Typography sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.95rem' }}>Nincs kép kiválasztva</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
-              </Grid>
+                {/* Right column: preview */}
+                <Box sx={{ width: 280, height: 280, flexShrink: 0, bgcolor: '#222', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px dashed rgba(255,255,255,0.15)', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.6)' }}>
+                  {signaturePreviewUrl || signatureImage ? (
+                    <img
+                      src={signaturePreviewUrl || signatureImage}
+                      alt="Preview"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                    />
+                  ) : (
+                    <Typography sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.95rem', textAlign: 'center', p: 2 }}>Nincs kép kiválasztva</Typography>
+                  )}
+                </Box>
+              </Box>
             </Paper>
           )}
 
           {section === 'attachment' && (
-            <Paper variant="outlined" sx={{ ...sectionPaperSx, p: 3 }}>
+            <Paper variant="outlined" sx={sectionPaperSx}>
               <Typography variant="h6" align="center" gutterBottom sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}>Csatolmány</Typography>
-              <Box sx={{ mt: 2, mb: 2 }}>
-                <input
-                  type="file"
-                  id="attachment-input"
-                  style={{ display: 'none' }}
-                  onChange={handleAttachmentSelect}
-                  disabled={attachmentUploading || loading}
-                />
-                <label htmlFor="attachment-input">
-                  <Button variant="contained" component="span" disabled={attachmentUploading || loading}>
-                    Fájl kiválasztása
+              <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, alignItems: 'center', justifyContent: 'center' }}>
+                  <input
+                    type="file"
+                    id="attachment-input"
+                    style={{ display: 'none' }}
+                    onChange={handleAttachmentSelect}
+                    disabled={attachmentUploading || loading}
+                  />
+                  <label htmlFor="attachment-input">
+                    <Button variant="contained" component="span" disabled={attachmentUploading || loading}>
+                      Fájl kiválasztása
+                    </Button>
+                  </label>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleAttachmentUpload}
+                    disabled={!attachmentFile || attachmentUploading || loading}
+                  >
+                    {attachmentUploading ? <CircularProgress size={24} /> : 'Feltöltés'}
                   </Button>
-                </label>
+                </Box>
                 {attachmentFileName && (
-                  <Typography sx={{ mt: 1, color: 'white', fontSize: { xs: '0.95rem', sm: '1rem' } }}>
+                  <Typography sx={{ color: 'white', fontSize: { xs: '0.95rem', sm: '1rem' }, textAlign: 'center' }}>
                     Kiválasztott fájl: {attachmentFileName} ({(attachmentFileSize / (1024 * 1024)).toFixed(2)} MB)
                   </Typography>
                 )}
-                <Button
-                  sx={{ ml: 2 }}
-                  variant="contained"
-                  color="primary"
-                  onClick={handleAttachmentUpload}
-                  disabled={!attachmentFile || attachmentUploading || loading}
-                >
-                  {attachmentUploading ? <CircularProgress size={24} /> : 'Feltöltés'}
-                </Button>
               </Box>
 
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>Feltöltött csatolmányok:</Typography>
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="subtitle1" sx={{ mb: 2, textAlign: 'center' }}>Feltöltött csatolmányok:</Typography>
                 {attachmentsLoading ? (
                   <CenteredLoading size={28} text={'Betöltés...'} />
                 ) : attachments.length === 0 ? (
-                  <Typography>Nincs csatolmány feltöltve.</Typography>
+                  <Typography sx={{ textAlign: 'center' }}>Nincs csatolmány feltöltve.</Typography>
                 ) : (
-                  attachments.map((file) => (
-                    <Box key={file} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      <Typography sx={{ flex: 1 }}>{file}</Typography>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleDeleteAttachment(file)}
-                        sx={{ ml: 2 }}
-                      >
-                        Törlés
-                      </Button>
-                    </Box>
-                  ))
+                  <Box sx={{ maxWidth: 500, mx: 'auto' }}>
+                    {attachments.map((file) => (
+                      <Box key={file} sx={{ display: 'flex', alignItems: 'center', mb: 1, p: 1, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }}>
+                        <Typography sx={{ flex: 1, wordBreak: 'break-all' }}>{file}</Typography>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          size="small"
+                          onClick={() => handleDeleteAttachment(file)}
+                          sx={{ ml: 2, flexShrink: 0 }}
+                        >
+                          Törlés
+                        </Button>
+                      </Box>
+                    ))}
+                  </Box>
                 )}
               </Box>
             </Paper>

@@ -21,6 +21,7 @@ const GeneratedMailsView = ({ showSnackbar }) => {
   const [generationStarted, setGenerationStarted] = useState(false); 
   const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 }); 
   const [isGenerating, setIsGenerating] = useState(false); 
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const abortRef = useRef(false); 
 
   useEffect(() => {
@@ -148,7 +149,6 @@ const GeneratedMailsView = ({ showSnackbar }) => {
       } catch (err) {
         console.error(`Error generating reply for email ${email.id}:`, err);
         errorCount++;
-g
       }
 
       if (i < emailsToGenerate.length - 1 && !abortRef.current) {
@@ -251,6 +251,60 @@ g
       console.error('Error saving selected reply for', id, err);
       setSavingIds(prev => prev.filter(x => x !== id));
     });
+  };
+
+  const handleRegenerateReply = async () => {
+    if (!selectedEmail || isRegenerating) return;
+    const id = selectedEmail.id;
+    setIsRegenerating(true);
+
+    try {
+      let emailData;
+      try {
+        emailData = await window.api.getEmailById(id);
+        if (!emailData || !emailData.body) {
+          emailData = { ...selectedEmail, body: selectedEmail.snippet || '' };
+        }
+      } catch (fetchErr) {
+        console.warn('Could not fetch full email for regeneration:', fetchErr);
+        emailData = { ...selectedEmail, body: selectedEmail.snippet || '' };
+      }
+
+      const reply = await Promise.race([
+        window.api.generateReply(emailData),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Generation timeout')), 120000))
+      ]);
+
+      if (!reply || !reply.body) {
+        console.warn('Regenerated reply body is undefined');
+        setReplySubject(`Re: ${selectedEmail.subject || ''}`);
+        setReplyBody(emailData.body || selectedEmail.snippet || '');
+      } else {
+        setReplySubject(reply.subject || `Re: ${selectedEmail.subject || ''}`);
+        setReplyBody(reply.body);
+      }
+
+      // Save the regenerated reply
+      const updatedReplies = { ...generatedReplies };
+      updatedReplies[id] = {
+        subject: reply?.subject || `Re: ${selectedEmail.subject || ''}`,
+        body: reply?.body || emailData.body || ''
+      };
+      setGeneratedReplies(updatedReplies);
+
+      try {
+        await window.api.saveGeneratedReplies(updatedReplies);
+      } catch (saveErr) {
+        console.warn('Could not save regenerated reply:', saveErr);
+      }
+
+      showSnackbar && showSnackbar('Válasz újra generálva!', 'success');
+    } catch (err) {
+      console.error('Error regenerating reply:', err);
+      showSnackbar && showSnackbar('Hiba az újragenerálás során!', 'error');
+    } finally {
+      setIsRegenerating(false);
+    }
   };
 
   const handleSendSelectedReply = () => {
@@ -372,10 +426,10 @@ g
                 value={replyBody}
                 onChange={(e) => setReplyBody(e.target.value)}
               />
-              <Box sx={{ mt: 4, display: 'flex', gap: 2 }}>
-                <Button variant="contained" color="primary" onClick={handleSendSelectedReply} disabled={sending}>Küldés</Button>
-                <Button variant="outlined" onClick={handleSaveSelectedReply} disabled={savingIds.includes(selectedEmail.id)}>{savingIds.includes(selectedEmail.id) ? 'Mentés...' : 'Mentés'}</Button>
-                <Button variant="text" onClick={handleBackFromOpen}>Vissza</Button>
+              <Box sx={{ mt: 4, display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <Button variant="text" onClick={handleBackFromOpen} disabled={isRegenerating}>Vissza</Button>
+                <Button variant="contained" color="primary" onClick={handleRegenerateReply} disabled={isRegenerating || sending}>{isRegenerating ? 'Generálás...' : 'Újra generálás'}</Button>
+                <Button variant="contained" color="primary" onClick={handleSendSelectedReply} disabled={sending || isRegenerating}>Küldés</Button>
               </Box>
             </>
           )}

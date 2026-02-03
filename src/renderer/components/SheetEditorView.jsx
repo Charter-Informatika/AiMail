@@ -252,7 +252,7 @@ const SheetEditorView = ({ showSnackbar, embedded = false, onClose }) => {
   };
 
   return (
-    <Paper sx={{ p: 4, mt: 1, bgcolor: '#181818', color: 'white', borderRadius: 1, boxShadow: '0 1px 6px rgba(0,0,0,0.6)', maxHeight: 'calc(100vh - 240px)', display: 'flex', flexDirection: 'column', maxWidth: 1200 }}>
+    <Paper sx={{ p: 4, mt: 1, bgcolor: '#181818', color: 'white', borderRadius: 1, boxShadow: '0 1px 6px rgba(0,0,0,0.6)', maxHeight: 'calc(100vh - 240px)', display: 'flex', flexDirection: 'column', maxWidth: 1200, mx: 'auto' }}>
 
       {loading ? (
         <CenteredLoading />
@@ -320,7 +320,7 @@ const SheetEditorView = ({ showSnackbar, embedded = false, onClose }) => {
           </Box>
 
           {/* Sticky footer with action buttons so they remain visible */}
-          <Box sx={{ position: 'sticky', bottom: 0, zIndex: 10, bgcolor: '#181818', borderTop: '1px solid rgba(255,255,255,0.04)', p: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+          <Box sx={{ position: 'sticky', bottom: 0, zIndex: 10, bgcolor: '#181818', borderTop: '1px solid rgba(255,255,255,0.04)', p: 2, display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
             <Button variant="contained" onClick={() => setConfirmExportOpen(true)} disabled={saving} sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' }, minWidth: 160 }}>
               {saving ? 'Mentés...' : 'Mentés'}
             </Button>
