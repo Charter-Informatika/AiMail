@@ -68,6 +68,15 @@ import {
 } from './src/backend/auth-state.js';
 
 import {
+  chatCompletion,
+  describeImage,
+  createEmbedding,
+  createEmbeddingsBatch,
+  isOllamaAvailable,
+  getOpenAI
+} from './src/backend/local-ai-helper.js';
+
+import {
   checkInternetConnection,
   startInternetMonitoring,
   stopInternetMonitoring
@@ -116,13 +125,14 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Globális unhandledRejection (IGNORED):', reason);
 });
 
-// OpenAI inicializálás
-const openKey = await getSecret('OpenAPIKey');
-if (!openKey) {
-  throw new Error('OpenAPIKey nincs beállítva Keytarban!');
+// OpenAI inicializálás - most már a local-ai-helper kezeli
+// A helyi AI-t próbálja először, utána fallback OpenAI-ra
+let openai = null;
+try {
+  openai = await getOpenAI();
+} catch (e) {
+  console.warn('[main] OpenAI kulcs nem elérhető, csak helyi AI lesz használható:', e?.message);
 }
-
-const openai = new OpenAI({ apiKey: openKey });
 
 // =============================================================================
 // EMAIL PROVIDER FUNCTIONS
@@ -438,41 +448,27 @@ async function safeCreateEmbedding(model, text) {
   if (!text) return null;
   const SLEEP = (ms) => new Promise(r => setTimeout(r, ms));
   try {
-    const resp = await openai.embeddings.create({ model, input: String(text) });
-    return resp?.data?.[0]?.embedding || null;
+    // Használjuk a local-ai-helper-t, ami először a helyi AI-t próbálja
+    const embedding = await createEmbedding(String(text));
+    return embedding || null;
   } catch (err) {
-    console.error('[safeCreateEmbedding] full text embed failed:', err?.message || err);
+    console.error('[safeCreateEmbedding] embedding failed:', err?.message || err);
     try {
+      // Chunkolás és újrapróbálás
       const SUB_CHUNK = 2000;
       const parts = [];
       for (let i = 0; i < String(text).length; i += SUB_CHUNK) parts.push(String(text).slice(i, i + SUB_CHUNK));
       if (!parts.length) return null;
-      const embeddings = [];
-      for (let i = 0; i < parts.length; i += 20) {
-        const batch = parts.slice(i, i + 20);
-        try {
-          const r = await openai.embeddings.create({ model, input: batch });
-          const data = (r && r.data) ? r.data.map(d => d.embedding) : [];
-          for (const v of data) embeddings.push(v);
-        } catch (be) {
-          console.error('[safeCreateEmbedding] sub-batch embed failed:', be?.message || be);
-          for (const part of batch) {
-            try {
-              const rr = await openai.embeddings.create({ model, input: part });
-              const dv = rr?.data?.[0]?.embedding;
-              if (dv) embeddings.push(dv);
-            } catch (e2) {
-              console.error('[safeCreateEmbedding] single subchunk embed failed:', e2?.message || e2);
-            }
-            await SLEEP(100);
-          }
-        }
-        await SLEEP(100);
-      }
-      if (!embeddings.length) return null;
-      const len = embeddings.length;
-      const out = new Array(embeddings[0].length).fill(0);
-      for (const vec of embeddings) {
+      
+      const embeddings = await createEmbeddingsBatch(parts, 20);
+      const validEmbeddings = embeddings.filter(e => e !== null);
+      
+      if (!validEmbeddings.length) return null;
+      
+      // Átlagolás
+      const len = validEmbeddings.length;
+      const out = new Array(validEmbeddings[0].length).fill(0);
+      for (const vec of validEmbeddings) {
         for (let k = 0; k < vec.length; k++) out[k] += vec[k] || 0;
       }
       for (let k = 0; k < out.length; k++) out[k] = out[k] / len;
@@ -489,20 +485,8 @@ async function describeImagesWithAI(images) {
   const descriptions = [];
   for (const img of images) {
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Írj rövid, informatív leírást erről a képről magyarul!" },
-              { type: "image_url", image_url: { url: img.base64 } }
-            ]
-          }
-        ],
-        max_tokens: 200
-      });
-      const desc = completion.choices[0]?.message?.content || '(nincs leírás)';
+      // Használjuk a local-ai-helper-t, ami először a helyi AI-t próbálja
+      const desc = await describeImage(img.base64, 'Írj rövid, informatív leírást erről a képről magyarul!');
       descriptions.push(desc);
     } catch (err) {
       console.error('AI képleírás hiba:', err);
@@ -662,63 +646,16 @@ async function generateReply(email) {
       .replace('{webUrls}', safeCombinedHtml || 'N/A')
       .replace('{embeddingsContext}', embeddingsContext || '');
 
-    // AI hívás
+    // AI hívás - local-ai-helper használata (először helyi AI, utána OpenAI fallback)
     const systemPrompt = "Te egy segítőkész asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek. Az Excel adatokat és a megadott html-ről szerzett információkat használd fel a válaszadáshoz, ha releváns információt találsz bennük. Elsődlegesen a levél tartalma alapján válaszolj.";
 
     let messageContent = null;
 
-    // Ollama próba
     try {
-      console.log('[generateReply] Trying Ollama local server...');
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000); 
-      const promptForOllama = `${systemPrompt}\n\n${finalPrompt}`;
-
-      const localResp = await fetch('http://192.168.88.12:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama3.1:8b',
-          prompt: promptForOllama,
-          temperature: 1,
-          stream: false
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-
-      if (localResp && localResp.ok) {
-        const localData = await localResp.json();
-        if (typeof localData?.response === 'string' && localData.response.trim().length > 0) {
-          messageContent = localData.response;
-          console.log('[generateReply] Local Ollama responded successfully.');
-        } else {
-          console.warn('[generateReply] Local Ollama returned empty response');
-        }
-      } else {
-        console.warn('[generateReply] Local Ollama returned status:', localResp?.status);
-      }
-    } catch (localErr) {
-      if (localErr?.name === 'AbortError') {
-        console.warn('[generateReply] Local Ollama timed out after 90 seconds');
-      } else {
-        console.warn('[generateReply] Local Ollama unavailable:', localErr?.message || localErr);
-      }
-    }
-
-    // OpenAI fallback
-    if (!messageContent) {
-      try {
-        console.log('[generateReply] Ollama failed, falling back to OpenAI...');
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-5-mini',
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: finalPrompt }],
-          temperature: 1
-        });
-        messageContent = completion?.choices?.[0]?.message?.content;
-      } catch (err) {
-        console.error('[generateReply] OpenAI completion error:', err);
-      }
+      // Használjuk a local-ai-helper chatCompletion-t, ami először helyi AI-t próbál
+      messageContent = await chatCompletion(systemPrompt, finalPrompt, { temperature: 1 });
+    } catch (err) {
+      console.error('[generateReply] AI completion error:', err);
     }
 
     if (!messageContent || String(messageContent).trim().length === 0) {
@@ -1311,6 +1248,16 @@ ipcMain.handle('get-reply-stats', async () => {
 ipcMain.handle('read-sent-emails-log', async () => readSentEmailsLog());
 ipcMain.handle('read-generated-replies', async () => readGeneratedReplies());
 ipcMain.handle('save-generated-replies', async (event, replies) => saveGeneratedReplies(replies));
+
+// Local AI handlers
+ipcMain.handle('check-ollama-available', async () => {
+  try {
+    return await isOllamaAvailable();
+  } catch (e) {
+    console.error('[check-ollama-available] Error:', e);
+    return false;
+  }
+});
 
 // Auth handlers
 ipcMain.handle('login-with-gmail', async () => {

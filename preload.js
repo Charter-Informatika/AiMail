@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('api', {
   readGeneratedReplies: () => ipcRenderer.invoke('read-generated-replies'),
   saveGeneratedReplies: (replies) => ipcRenderer.invoke('save-generated-replies', replies),
   getExcelPath: () => ipcRenderer.invoke('get-excel-path'),
+
+  checkOllamaAvailable: () => ipcRenderer.invoke('check-ollama-available'),
 });
 
 contextBridge.exposeInMainWorld('electronAPI', {

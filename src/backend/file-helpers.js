@@ -6,11 +6,38 @@ import { findFile } from '../utils/findFile.js';
 let _configFile = null;
 let _authStateFile = null;
 
-export const REPLIED_EMAILS_FILE = findFile('repliedEmails.json');
-export const GENERATED_REPLIES_FILE = findFile('GeneratedReplies.json');
-export const CACHED_EMAILS_FILE = findFile('cached_emails.json');
-export const TOKEN_PATH = findFile('token.json');
-export const SETTINGS_FILE = findFile('settings.json');
+function getUserDataFile(filename) {
+  return path.join(app.getPath('userData'), filename);
+}
+
+function migrateToUserData(filename) {
+  const userDataPath = getUserDataFile(filename);
+
+  if (fs.existsSync(userDataPath)) {
+    return userDataPath;
+  }
+  try {
+    const oldPath = findFile(filename);
+    if (oldPath && fs.existsSync(oldPath)) {
+      const userDataDir = app.getPath('userData');
+      if (!fs.existsSync(userDataDir)) {
+        fs.mkdirSync(userDataDir, { recursive: true });
+      }
+      fs.copyFileSync(oldPath, userDataPath);
+      console.log(`[Migration] ${filename} átmásolva: ${oldPath} -> ${userDataPath}`);
+    }
+  } catch (err) {
+
+  }
+  return userDataPath;
+}
+
+export const REPLIED_EMAILS_FILE = migrateToUserData('repliedEmails.json');
+export const GENERATED_REPLIES_FILE = migrateToUserData('GeneratedReplies.json');
+export const CACHED_EMAILS_FILE = migrateToUserData('cached_emails.json');
+export const TOKEN_PATH = migrateToUserData('token.json');
+export const SETTINGS_FILE = migrateToUserData('settings.json');
+export const SENT_EMAILS_LOG_FILE = migrateToUserData('sentEmailsLog.json');
 
 export function getConfigFile() {
   if (!_configFile) _configFile = path.join(app.getPath('userData'), 'config.json');
@@ -107,9 +134,8 @@ export function saveCachedEmails(emails) {
 
 export function readSentEmailsLog() {
   try {
-    const sentPath = findFile('sentEmailsLog.json');
-    if (fs.existsSync(sentPath)) {
-      return JSON.parse(fs.readFileSync(sentPath, 'utf-8'));
+    if (fs.existsSync(SENT_EMAILS_LOG_FILE)) {
+      return JSON.parse(fs.readFileSync(SENT_EMAILS_LOG_FILE, 'utf-8'));
     }
     return [];
   } catch (err) {
@@ -120,14 +146,13 @@ export function readSentEmailsLog() {
 
 export function appendSentEmailLog(entry) {
   try {
-    const sentPath = findFile('sentEmailsLog.json');
     let log = [];
-    if (fs.existsSync(sentPath)) {
-      log = JSON.parse(fs.readFileSync(sentPath, 'utf-8'));
+    if (fs.existsSync(SENT_EMAILS_LOG_FILE)) {
+      log = JSON.parse(fs.readFileSync(SENT_EMAILS_LOG_FILE, 'utf-8'));
     }
     log.push(entry);
     if (log.length > 500) log = log.slice(-500);
-    fs.writeFileSync(sentPath, JSON.stringify(log, null, 2), 'utf-8');
+    fs.writeFileSync(SENT_EMAILS_LOG_FILE, JSON.stringify(log, null, 2), 'utf-8');
   } catch (err) {
     console.error('Hiba a sentEmailsLog.json írásakor:', err);
   }

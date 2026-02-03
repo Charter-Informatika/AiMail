@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
-import { OpenAI } from 'openai';
-import { getSecret } from '../utils/keytarHelper.js';
 import { chunkText as losslessChunkText } from './embeddings-helper.js';
+import { createEmbedding, createEmbeddingsBatch } from './local-ai-helper.js';
 
 const KB_FILENAME = path.join(app.getPath('userData'), 'embeddings_kb.json');
 const DEFAULT_CHUNK_CHARS = 16000;
@@ -17,12 +16,6 @@ function appendLog(line) {
   } catch (e) {
     console.log('[kb-manager][log-fallback]', line);
   }
-}
-
-async function getOpenAI() {
-  const key = await getSecret('OpenAPIKey');
-  if (!key) throw new Error('OpenAPIKey not set in keytar');
-  return new OpenAI({ apiKey: key });
 }
 
 function loadKB() {
@@ -117,16 +110,7 @@ async function addEmails(emails = []) {
     console.warn(`[kb-manager] Large number of new chunks to embed: ${toEmbed.length}. Limiting to first ${MAX_NEW_CHUNKS} to avoid excessive cost.`);
   }
 
-  let openai;
-  try {
-    openai = await getOpenAI();
-  } catch (e) {
-    console.error('[kb-manager] OpenAI init failed:', e && e.message ? e.message : e);
-    appendLog(`OpenAI init failed: ${e && e.message ? e.message : e}`);
-    return { added: 0, error: 'OpenAI init failed' };
-  }
-
-  const embeddings = [];
+  // Használjuk a local-ai-helper-t, ami először helyi AI-t próbál, utána OpenAI fallback
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < Math.min(toEmbed.length, MAX_NEW_CHUNKS); i += BATCH_EMBED_SIZE) {
     const slice = toEmbed.slice(i, i + BATCH_EMBED_SIZE);
@@ -136,13 +120,14 @@ async function addEmails(emails = []) {
     let batchSucceeded = false;
     while (attempt < maxAttempts && !batchSucceeded) {
       try {
-        const resp = await openai.embeddings.create({ model: 'text-embedding-3-small', input: inputs });
-        const data = (resp && resp.data) ? resp.data.map(d => d.embedding) : [];
-        for (let j = 0; j < data.length; j++) {
+        // Használjuk a local-ai-helper createEmbedding-et (helyi AI először, utána OpenAI)
+        const data = await createEmbeddingsBatch(inputs, inputs.length);
+        const validData = data.filter(d => d !== null);
+        for (let j = 0; j < validData.length; j++) {
           const entry = slice[j];
-          kb.push({ id: entry.id, docId: entry.docId, chunkIndex: entry.chunkIndex, text: entry.text, subject: entry.subject, from: entry.from, date: entry.date, embedding: data[j], chunkStart: entry.chunkStart || null, chunkEnd: entry.chunkEnd || null, totalChunks: entry.totalChunks || null, sheet: entry.sheet || null, colLetter: entry.colLetter || null, row: (typeof entry.row === 'number' ? entry.row : (entry.row ? Number(entry.row) : null)) || null, cellAddress: entry.cellAddress || null });
+          kb.push({ id: entry.id, docId: entry.docId, chunkIndex: entry.chunkIndex, text: entry.text, subject: entry.subject, from: entry.from, date: entry.date, embedding: validData[j], chunkStart: entry.chunkStart || null, chunkEnd: entry.chunkEnd || null, totalChunks: entry.totalChunks || null, sheet: entry.sheet || null, colLetter: entry.colLetter || null, row: (typeof entry.row === 'number' ? entry.row : (entry.row ? Number(entry.row) : null)) || null, cellAddress: entry.cellAddress || null });
         }
-        appendLog(`Embedded batch ${i}/${toEmbed.length} -> ${data.length} items`);
+        appendLog(`Embedded batch ${i}/${toEmbed.length} -> ${validData.length} items`);
         await sleep(200);
         batchSucceeded = true;
         break;
@@ -156,8 +141,7 @@ async function addEmails(emails = []) {
           for (let j = 0; j < slice.length; j++) {
             const entry = slice[j];
             try {
-              const singleResp = await openai.embeddings.create({ model: 'text-embedding-3-small', input: String(entry.text) });
-              const emb = singleResp && singleResp.data && singleResp.data[0] ? singleResp.data[0].embedding : null;
+              const emb = await createEmbedding(String(entry.text));
               if (emb) {
                 kb.push({ id: entry.id, docId: entry.docId, chunkIndex: entry.chunkIndex, text: entry.text, subject: entry.subject, from: entry.from, date: entry.date, embedding: emb, chunkStart: entry.chunkStart || null, chunkEnd: entry.chunkEnd || null, totalChunks: entry.totalChunks || null });
                 appendLog(`Embedded single entry ${entry.id}`);
@@ -171,18 +155,13 @@ async function addEmails(emails = []) {
             try {
               const SUB_CHUNK = 2000; 
               const partObjs = losslessChunkText(String(entry.text), SUB_CHUNK, Math.floor(SUB_CHUNK * 0.1));
-              const subEmbeddings = [];
-              for (let p = 0; p < partObjs.length; p += BATCH_EMBED_SIZE) {
-                const subSlice = partObjs.slice(p, p + BATCH_EMBED_SIZE).map(x => x.text || '');
-                const subResp = await openai.embeddings.create({ model: 'text-embedding-3-small', input: subSlice });
-                const subData = (subResp && subResp.data) ? subResp.data.map(d => d.embedding) : [];
-                for (const sd of subData) subEmbeddings.push(sd);
-                await sleep(100);
-              }
-                if (subEmbeddings.length) {
-                const len = subEmbeddings.length;
-                const out = new Array(subEmbeddings[0].length).fill(0);
-                for (const vec of subEmbeddings) {
+              const subTexts = partObjs.map(x => x.text || '');
+              const subEmbeddings = await createEmbeddingsBatch(subTexts, BATCH_EMBED_SIZE);
+              const validSubEmbeddings = subEmbeddings.filter(e => e !== null);
+              if (validSubEmbeddings.length) {
+                const len = validSubEmbeddings.length;
+                const out = new Array(validSubEmbeddings[0].length).fill(0);
+                for (const vec of validSubEmbeddings) {
                   for (let k = 0; k < vec.length; k++) out[k] += vec[k] || 0;
                 }
                 for (let k = 0; k < out.length; k++) out[k] = out[k] / len;

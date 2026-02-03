@@ -1,8 +1,6 @@
 Fontos:
-    - HA lefrissül az uj verzióra ne resetelje a sent emails.jsont, settings.json meg a többit!
-    - Minden ai folyamat elsődlegesen a helyi ai-t próbálja elérni
-    - UI design javítás
-    - Logó bal felülre
+
+    - UI design javítások
     - Automata válaszaddás kivétele az ingyenes verzióból
     - Több fizetős verzió (nincs ai, levél korlát stb.)
 Ráér:  

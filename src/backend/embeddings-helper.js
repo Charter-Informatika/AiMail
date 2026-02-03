@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
-import OpenAI from 'openai';
-import { getSecret } from '../utils/keytarHelper.js';
 import crypto from 'crypto';
+import { createEmbedding } from './local-ai-helper.js';
 
 function chunkText(text, maxChars = 8000, overlapChars = 800) {
   if (!text) return [];
@@ -51,14 +50,7 @@ function chunkText(text, maxChars = 8000, overlapChars = 800) {
 async function createAndStoreEmbeddingsForLongText(text, meta = {}) {
   try {
     if (!text || String(text).trim().length === 0) return 0;
-    const apiKey = await getSecret('OpenAPIKey');
-    if (!apiKey) {
-      console.warn('[embeddings-helper] OpenAI API key not found; skipping embeddings');
-      return 0;
-    }
 
-    const openai = new OpenAI({ apiKey });
-    const model = meta.model || 'text-embedding-3-small';
     const requestedMaxTokens = typeof meta.maxTokens === 'number' ? meta.maxTokens : 8000;
     const maxTokens = Math.min(requestedMaxTokens, 4096);
     const overlapTokens = typeof meta.overlapTokens === 'number' ? meta.overlapTokens : Math.floor(maxTokens * 0.08);
@@ -88,8 +80,8 @@ async function createAndStoreEmbeddingsForLongText(text, meta = {}) {
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       try {
-        const resp = await openai.embeddings.create({ model, input: String(chunk.text || chunk) });
-        const emb = resp?.data?.[0]?.embedding || null;
+        // Használjuk a local-ai-helper-t, ami először helyi AI-t próbál, utána OpenAI fallback
+        const emb = await createEmbedding(String(chunk.text || chunk));
         if (emb && Array.isArray(emb)) {
           const entry = {
             embedding: emb,
