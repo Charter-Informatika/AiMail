@@ -1,7 +1,17 @@
 Fontos:
-    - HA lefrissül az uj verzióra ne resetelje a sent emails.jsont meg a többit!
-    - Windows ne dobja fel hogy futtatás mellőzése mert vírusnak hiszi
+    - HA lefrissül az uj verzióra ne resetelje a sent emails.jsont, settings.json meg a többit!
+    - MInden ai folyamat elsődlegesen a helyi ai-t próbálja elérni
+    - HA sok az előkészített levél, akkor kidob generálás közben,
+    - Az előkészített levél oldalon legyen egy gomb hogy levelek előkészítése és csak utánna kerzdjen generálni a háttérben, (pllama ai nem müködik itt vmiéert)
+    - Lokális model optimalizálás
+    - UI elcsúszások az AI tanítása résznél
+    - UI design javítás
+    - Levél szekezet view = Ai tanítás view 
+    - Logó bal felülre
+    - Automata válaszaddás kivétele az ingyenes verzióból
+    - Több fizetős verzió (nincs ai, levél korlát stb.)
 Ráér:  
+    - Windows ne dobja fel hogy futtatás mellőzése mert vírusnak hiszi
     - Lehessen több emailel bejelentkezni, úgymint a thunderbirdnél (Fiókok aloldal)
     - Please review for production readiness check for common vulnerabilities, secure headers, forms, input validation, authentication, error handling, debug statements, dependency security, and ensure adherence to industry best practices.
 

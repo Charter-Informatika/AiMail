@@ -8,7 +8,6 @@ import http from 'http';
 const CREDENTIALS_PATH = findFile('credentials.json');
 const TOKEN_PATH = findFile('token.json');
 
-// Token generation lock to prevent multiple simultaneous token generations
 let tokenGenerationPromise = null;
 
 export async function authorize() {
@@ -18,7 +17,7 @@ export async function authorize() {
   const oAuth2Client = new google.auth.OAuth2(
     credentials.client_id,
     credentials.client_secret,
-    credentials.redirect_uris[0] // például: http://localhost
+    credentials.redirect_uris[0] 
   );
 
   try {
@@ -26,23 +25,19 @@ export async function authorize() {
     oAuth2Client.setCredentials(JSON.parse(token));
     return oAuth2Client;
   } catch (err) {
-    // If a token generation is already in progress, wait for it to complete
     if (tokenGenerationPromise) {
       console.log('Token generation already in progress, waiting...');
       await tokenGenerationPromise;
-      // After the token is generated, try to read it again
       const token = await fs.readFile(TOKEN_PATH, 'utf-8');
       oAuth2Client.setCredentials(JSON.parse(token));
       return oAuth2Client;
     }
 
-    // Start new token generation
     tokenGenerationPromise = getNewToken(oAuth2Client);
     try {
       await tokenGenerationPromise;
       return oAuth2Client;
     } finally {
-      // Clear the promise when done (success or failure)
       tokenGenerationPromise = null;
     }
   }
@@ -60,7 +55,6 @@ async function getNewToken(oAuth2Client) {
   });
 
   console.log('Starting new token generation process...');
-  // Nyissuk meg a böngészőben (vagy használhatsz Electron BrowserWindow-ot is)
   await open(authUrl);
 
   const code = await waitForCodeFromLocalhost();

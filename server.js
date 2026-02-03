@@ -7,11 +7,9 @@ const server = http.createServer((req, res) => {
     const authCode = reqUrl.query.code;
     console.log('Megkaptuk az authorization code-ot:', authCode);
 
-    // Itt folytasd a token kérését a Google API-val (pl. getToken(authCode))
-
     res.writeHead(200, {'Content-Type': 'text/html'});
     res.end('Sikeresen bejelentkeztel! Bezarhatod ezt az ablakot.');
-    server.close(); // bezárod a szervert, mert már nem kell tovább hallgatni
+    server.close(); 
   } else {
     res.writeHead(404);
     res.end();

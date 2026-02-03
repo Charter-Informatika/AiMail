@@ -15,6 +15,59 @@ import path from 'path';
 import { createAndStoreEmbeddingsForLongText } from './src/backend/embeddings-helper.js';
 import kbManager from './src/backend/kb-manager.js';
 
+// Gmail caching configuration
+const GMAIL_CACHE_CONFIG = {
+  minFetchInterval: 30000, // 30 seconds minimum between fetches
+  maxCacheAge: 300000, // 5 minutes before cache is stale
+};
+
+// In-memory cache for Gmail
+let gmailCache = {
+  emails: new Map(),
+  lastFetchTime: 0,
+  lastFullFetchTime: 0,
+  cachedIds: new Set(),
+  fetchInProgress: false
+};
+
+/**
+ * Check if enough time has passed since last Gmail fetch
+ * @returns {boolean}
+ */
+function canFetchGmail() {
+  return (Date.now() - gmailCache.lastFetchTime) >= GMAIL_CACHE_CONFIG.minFetchInterval;
+}
+
+/**
+ * Check if Gmail cache is stale
+ * @returns {boolean}
+ */
+function isGmailCacheStale() {
+  return (Date.now() - gmailCache.lastFullFetchTime) >= GMAIL_CACHE_CONFIG.maxCacheAge;
+}
+
+/**
+ * Get cached Gmail emails
+ * @returns {Array}
+ */
+export function getCachedGmailEmails() {
+  return Array.from(gmailCache.emails.values());
+}
+
+/**
+ * Clear Gmail cache
+ */
+export function clearGmailCache() {
+  gmailCache = {
+    emails: new Map(),
+    lastFetchTime: 0,
+    lastFullFetchTime: 0,
+    cachedIds: new Set(),
+    fetchInProgress: false
+  };
+  console.log('[Gmail] Cache cleared');
+}
+
 function decodeRFC2047(subject) {
   return subject.replace(/=\?([^?]+)\?([BbQq])\?([^?]+)\?=/g, (match, charset, encoding, text) => {
     if (encoding.toUpperCase() === 'B') {
@@ -66,66 +119,125 @@ function htmlToTextWithTables(html) {
   }
 }
 
-export async function getUnreadEmails() {
-  const auth = await authorize();
-  const gmail = google.gmail({ version: 'v1', auth });
-
-  const res = await gmail.users.messages.list({
-    userId: 'me',
-    q: 'is:unread',
-    maxResults: 50,
-  });
-
-  const messages = res.data.messages || [];
-
-  const detailed = await Promise.all(
-    messages.map(async (msg) => {
-      const full = await gmail.users.messages.get({
-        userId: 'me',
-        id: msg.id,
-        format: 'metadata',
-        metadataHeaders: ['From', 'Subject', 'Date'],
-      });
-
-      const headers = full.data.payload.headers.reduce((acc, h) => {
-        acc[h.name] = h.value;
-        return acc;
-      }, {});
-
-      return {
-        id: msg.id,
-        from: headers['From'],
-        subject: headers['Subject'] ? decodeRFC2047(headers['Subject']) : '',
-        date: headers['Date'],
-        snippet: full.data.snippet,
-      };
-    })
-  );
-
-  // Apply explicit fromDate post-filter: keep emails whose Date header is >= start of fromDate
+export async function getUnreadEmails(options = {}) {
+  const { forceRefresh = false } = options;
+  
+  // Return cached if throttled and not forcing refresh
+  if (!forceRefresh && !canFetchGmail() && gmailCache.emails.size > 0) {
+    console.log('[Gmail] Returning cached emails (throttled)');
+    return getCachedGmailEmails();
+  }
+  
+  // Prevent concurrent fetches
+  if (gmailCache.fetchInProgress) {
+    console.log('[Gmail] Fetch in progress, returning cached');
+    return getCachedGmailEmails();
+  }
+  
+  gmailCache.fetchInProgress = true;
+  
   try {
-    const settingsPath = path.resolve(process.cwd(), 'settings.json');
-    const raw = fs.readFileSync(settingsPath, 'utf8');
-    const settings = JSON.parse(raw);
-    const fromDateStr = settings?.fromDate;
-    if (fromDateStr && /^\d{4}-\d{2}-\d{2}$/.test(fromDateStr)) {
-      const parts = fromDateStr.split('-');
-      const startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-      // Normalize to start of day
-      startDate.setHours(0, 0, 0, 0);
-      const filtered = detailed.filter(d => {
-        try {
-          const msgDate = d.date ? new Date(d.date) : null;
-          return msgDate && !isNaN(msgDate) && msgDate >= startDate;
-        } catch (e) { return false; }
-      });
-      return filtered;
+    const auth = await authorize();
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    const res = await gmail.users.messages.list({
+      userId: 'me',
+      q: 'is:unread',
+      maxResults: 50,
+    });
+
+    const messages = res.data.messages || [];
+    
+    // Check which messages we already have cached
+    const cachedIds = gmailCache.cachedIds;
+    const newMessageIds = messages.filter(m => !cachedIds.has(m.id));
+    const cachedMessages = messages
+      .filter(m => cachedIds.has(m.id))
+      .map(m => gmailCache.emails.get(m.id))
+      .filter(Boolean);
+    
+    // If all cached and cache not stale, return cached
+    if (newMessageIds.length === 0 && !isGmailCacheStale() && !forceRefresh) {
+      console.log('[Gmail] All emails cached, returning cached data');
+      gmailCache.lastFetchTime = Date.now();
+      gmailCache.fetchInProgress = false;
+      return cachedMessages;
+    }
+    
+    // Fetch only new messages (or all if stale/forced)
+    const idsToFetch = (isGmailCacheStale() || forceRefresh) ? messages : newMessageIds;
+    
+    console.log(`[Gmail] Fetching ${idsToFetch.length} emails (${newMessageIds.length} new, ${cachedMessages.length} cached)`);
+
+    const detailed = await Promise.all(
+      idsToFetch.map(async (msg) => {
+        const full = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'Subject', 'Date'],
+        });
+
+        const headers = full.data.payload.headers.reduce((acc, h) => {
+          acc[h.name] = h.value;
+          return acc;
+        }, {});
+
+        const email = {
+          id: msg.id,
+          from: headers['From'],
+          subject: headers['Subject'] ? decodeRFC2047(headers['Subject']) : '',
+          date: headers['Date'],
+          snippet: full.data.snippet,
+          _cachedAt: Date.now()
+        };
+        
+        // Update cache
+        gmailCache.emails.set(msg.id, email);
+        gmailCache.cachedIds.add(msg.id);
+        
+        return email;
+      })
+    );
+    
+    // Merge with cached
+    const allEmails = [...detailed, ...cachedMessages];
+    
+    // Update timestamps
+    gmailCache.lastFetchTime = Date.now();
+    gmailCache.lastFullFetchTime = Date.now();
+    gmailCache.fetchInProgress = false;
+
+    // Apply explicit fromDate post-filter: keep emails whose Date header is >= start of fromDate
+    try {
+      const settingsPath = path.resolve(process.cwd(), 'settings.json');
+      const raw = fs.readFileSync(settingsPath, 'utf8');
+      const settings = JSON.parse(raw);
+      const fromDateStr = settings?.fromDate;
+      if (fromDateStr && /^\d{4}-\d{2}-\d{2}$/.test(fromDateStr)) {
+        const parts = fromDateStr.split('-');
+        const startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        // Normalize to start of day
+        startDate.setHours(0, 0, 0, 0);
+        const filtered = allEmails.filter(d => {
+          try {
+            const msgDate = d.date ? new Date(d.date) : null;
+            return msgDate && !isNaN(msgDate) && msgDate >= startDate;
+          } catch (e) { return false; }
+        });
+        return filtered;
     }
   } catch (e) {
     console.error('[AIServiceApp][gmail.js] settings.json read error (post-filter):', e.message);
   }
 
-  return detailed;
+  return allEmails;
+  } catch (fetchError) {
+    console.error('[Gmail] Fetch error:', fetchError);
+    gmailCache.fetchInProgress = false;
+    // Return cached on error
+    return getCachedGmailEmails();
+  }
 }
 
 export async function getRecentEmails() {

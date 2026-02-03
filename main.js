@@ -1,54 +1,98 @@
-import { findFile } from './src/utils/findFile.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { app, BrowserWindow, ipcMain, dialog, shell, webContents} from 'electron';
-import { getUnreadEmails, getEmailById, getRecentEmails } from './gmail.js';
-import { OpenAI } from 'openai';
-import KB from './src/backend/kb-manager.js';
-import XLSX from 'xlsx';
-import { authorize } from './src/backend/auth.js';
-import { google } from 'googleapis';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import fs from 'fs';
-import SmtpEmailHandler from './src/backend/smtp-handler.js';
-import ExcelJS from 'exceljs';
-import dns from 'dns';
-import mysql from 'mysql2/promise'; 
+import { OpenAI } from 'openai';
+import { google } from 'googleapis';
 import updaterPkg from "electron-updater";
 const { autoUpdater } = updaterPkg;
-import { getSecret } from './src/utils/keytarHelper.js'; 
 
-// Fallback DATABASE_URL ha a Keytar nem elérhető vagy nincs beállítva
-const FALLBACK_DATABASE_URL = 'mysql://aimail:kfawdwagfaw!378@192.168.88.24:3306/aimail';
+import { findFile } from './src/utils/findFile.js';
+import { getSecret } from './src/utils/keytarHelper.js';
+import { getUnreadEmails, getEmailById, getRecentEmails } from './gmail.js';
+import KB from './src/backend/kb-manager.js';
+import SmtpEmailHandler from './src/backend/smtp-handler.js';
+import { authorize } from './src/backend/auth.js';
 
-// Helper: adatbázis kapcsolat létrehozása fallback támogatással
-// Ha az elsődleges URL-lel nem sikerül, automatikusan próbálkozik a fallback URL-lel
-async function createDbConnectionWithFallback() {
-  let dbUrl = null;
-  try {
-    dbUrl = await getSecret('DATABASE_URL');
-  } catch (e) {
-    console.warn('[DB] getSecret failed, using fallback:', e?.message || e);
-  }
-  
-  // Próbálkozás az elsődleges URL-lel (ha van)
-  if (dbUrl) {
-    try {
-      const connection = await mysql.createConnection(dbUrl);
-      return connection;
-    } catch (err) {
-      console.warn('[DB] Primary connection failed, trying fallback:', err?.message || err);
-    }
-  }
-  
-  // Fallback URL-lel próbálkozás
-  try {
-    const connection = await mysql.createConnection(FALLBACK_DATABASE_URL);
-    return connection;
-  } catch (err) {
-    console.error('[DB] Fallback connection also failed:', err?.message || err);
-    throw err; // Ha a fallback is sikertelen, dobjuk tovább a hibát
-  }
-}
+import {
+  createDbConnection,
+  setTrialEndedForLicence,
+  checkLicenceInDb,
+  isLicenceActivated,
+  activateLicence,
+  updateEmailInUse,
+  clearEmailInUse,
+  getTrialStatusFromDb,
+  decrementRemainingGenerations
+} from './src/backend/db-helper.js';
+
+import {
+  readConfig,
+  saveConfig,
+  readRepliedEmails,
+  saveRepliedEmails,
+  readGeneratedReplies,
+  saveGeneratedReplies,
+  readCachedEmails,
+  saveCachedEmails,
+  readSentEmailsLog,
+  appendSentEmailLog,
+  logToFile,
+  formatAddress,
+  extractEmailAddress,
+  safeTrim,
+  CACHED_EMAILS_FILE,
+  TOKEN_PATH,
+  getConfigFile,
+  getAuthStateFile
+} from './src/backend/file-helpers.js';
+
+import {
+  getSettings,
+  saveSettings,
+  getSetting,
+  setSetting,
+  defaultSettings
+} from './src/backend/settings-manager.js';
+
+import {
+  getAuthState,
+  setAuthState,
+  loadAuthState,
+  setGmailAuth,
+  setSmtpAuth,
+  logout as logoutAuth,
+  isGmailProvider,
+  isSmtpProvider,
+  isAuthenticated
+} from './src/backend/auth-state.js';
+
+import {
+  checkInternetConnection,
+  startInternetMonitoring,
+  stopInternetMonitoring
+} from './src/backend/internet-monitor.js';
+
+import {
+  readExcelDataWithImages,
+  excelExists,
+  getExcelPath,
+  readExcelFile,
+  saveExcelFile,
+  uploadExcelFile,
+  findExcelCell
+} from './src/backend/excel-helper.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Globális változók
+let mainWindow = null;
+let smtpHandler = null;
+let emailMonitoringInterval = null;
+let repliedEmailIds = readRepliedEmails();
+let replyInProgressIds = [];
+let emailCheckInProgress = false;
+let activationEmail = getSetting('activationEmail', null);
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -56,7 +100,6 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    // If someone tries to open another instance, focus the main window
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
@@ -64,421 +107,30 @@ if (!gotTheLock) {
   });
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const REPLIED_EMAILS_FILE = findFile('repliedEmails.json');
-const GENERATED_REPLIES_FILE = findFile('GeneratedReplies.json');
-const CACHED_EMAILS_FILE = findFile('cached_emails.json');
-
-// Környezeti változók és útvonalak kezelése
-const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
-const AUTH_STATE_FILE = path.join(app.getPath('userData'), 'auth_state.json');
-const TOKEN_PATH = findFile('token.json');
-const SETTINGS_FILE = findFile('settings.json');
-
-// Declare mainWindow globally
-let mainWindow = null;
-
-// Globális hibakezelő, hogy semmilyen uncaught exception ne állítsa le a main process-t
+// Globális hibakezelő
 process.on('uncaughtException', (err) => {
   console.error('Globális uncaughtException (IGNORED):', err);
-  // Ne dobjuk tovább, csak logoljuk!
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Globális unhandledRejection (IGNORED):', reason);
-  // Ne dobjuk tovább, csak logoljuk!
 });
 
-function readConfig() {
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-    }
-  } catch (err) {
-    console.error('Hiba a konfiguráció beolvasásakor:', err);
-  }
-  return {};
-}
-
-function encodeRFC2047Name(name) {
-  // Csak akkor kódoljuk, ha van nem-ASCII karakter
-  if (/[^ -~]/.test(name)) {
-    return `=?UTF-8?B?${Buffer.from(name, 'utf-8').toString('base64')}?=`;
-  }
-  return name;
-}
-
-function formatAddress(address) {
-  const match = address.match(/^(.*)<(.+@.+)>$/);
-  if (match) {
-    const name = match[1].trim().replace(/^"|"$/g, '');
-    const email = match[2].trim();
-    return `"${encodeRFC2047Name(name)}" <${email}>`;
-  }
-  return address;
-}
-
-function saveConfig(config) {
-  try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Hiba a konfiguráció mentésekor:', err);
-  }
-}
-
-let config = readConfig();
-
+// OpenAI inicializálás
 const openKey = await getSecret('OpenAPIKey');
 if (!openKey) {
   throw new Error('OpenAPIKey nincs beállítva Keytarban!');
 }
 
-const openai = new OpenAI({
-  apiKey: openKey
-});
+const openai = new OpenAI({ apiKey: openKey });
 
-// Attachment upload handler (max 25MB, attachments folder)
-ipcMain.handle('upload-attachment', async (event, { name, size, content }) => {
-  console.log('[upload-attachment] Fájl feltöltés megkezdése:', { name, size });
-  try {
-    if (!name || !content) {
-      console.error('[upload-attachment] Hiányzó fájlnév vagy tartalom:', { name, contentType: typeof content });
-      return { success: false, error: 'Hiányzó fájlnév vagy tartalom.' };
-    }
-    if (size > 25 * 1024 * 1024) {
-      console.error(`[upload-attachment] Túl nagy fájl (${size} bájt):`, name);
-      return { success: false, error: 'A fájl mérete nem lehet nagyobb 25 MB-nál.' };
-    }
-    // Ensure attachments folder exists
-    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
-    if (!fs.existsSync(attachmentsDir)) {
-      fs.mkdirSync(attachmentsDir, { recursive: true });
-    }
-    // Avoid overwrite: if file exists, add (1), (2), ...
-    let base = path.parse(name).name;
-    let ext = path.parse(name).ext;
-    let filePath = path.join(attachmentsDir, name);
-    let counter = 1;
-    while (fs.existsSync(filePath)) {
-      filePath = path.join(attachmentsDir, `${base}(${counter})${ext}`);
-      counter++;
-    }
-    try {
-      fs.writeFileSync(filePath, Buffer.from(content));
-    } catch (writeErr) {
-      console.error(`[upload-attachment] Nem sikerült írni a fájlt: ${filePath}`, writeErr);
-      return { success: false, error: 'Nem sikerült menteni a fájlt: ' + writeErr.message };
-    }
-    console.log(`[upload-attachment] Sikeres feltöltés: ${filePath} (${size} bájt)`);
-    return { success: true, filePath };
-  } catch (error) {
-    console.error('[upload-attachment] Általános hiba:', error, { name, size });
-    return { success: false, error: error.message };
-  }
-});
-
-// Attachment delete handler
-ipcMain.handle('delete-attachment', async (event, { name }) => {
-  try {
-    if (!name) return { success: false, error: 'Hiányzó fájlnév.' };
-    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
-    const filePath = path.join(attachmentsDir, name);
-    if (!fs.existsSync(filePath)) {
-      return { success: false, error: 'A fájl nem található.' };
-    }
-    fs.unlinkSync(filePath);
-    return { success: true };
-  } catch (error) {
-    console.error('Hiba a csatolmány törlésekor:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Attachment list handler
-ipcMain.handle('list-attachments', async () => {
-  try {
-    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
-    if (!fs.existsSync(attachmentsDir)) return [];
-    const files = fs.readdirSync(attachmentsDir).filter(f => fs.statSync(path.join(attachmentsDir, f)).isFile());
-    return files;
-  } catch (error) {
-    console.error('Hiba a csatolmányok listázásakor:', error);
-    return [];
-  }
-});
-
-// DEMO vége flag, ha több mint 100 elküldött email van
-// Check whether the demo/trial period is over.
-// If a licence is supplied and a DATABASE_URL is configured, consult the database
-// for the user's `trialEndDate` and `remainingGenerations`. If either condition
-// indicates expiry, return true. Otherwise fall back to the local sent emails log.
-async function isDemoOver(licence = null) {
-  try {
-    // Try DB-based checks first when possible
-    try {
-      if (licence) {
-        const connection = await createDbConnectionWithFallback();
-        const [rows] = await connection.execute('SELECT trialEndDate, remainingGenerations FROM user WHERE licence = ? LIMIT 1', [licence]);
-        await connection.end();
-        if (Array.isArray(rows) && rows.length > 0) {
-          const row = rows[0];
-          let dbSaysOver = false;
-          // Check remainingGenerations
-          if (typeof row.remainingGenerations !== 'undefined' && row.remainingGenerations !== null) {
-            const remaining = Number(row.remainingGenerations);
-            if (!Number.isNaN(remaining) && remaining <= 0) {
-              dbSaysOver = true;
-            }
-          }
-          // Check trialEndDate (format: "YYYY-MM-DD HH:MM:SS")
-          if (!dbSaysOver && row.trialEndDate) {
-            // Replace space with 'T' so Date can parse as local/ISO
-            const normalized = row.trialEndDate.replace(' ', 'T');
-            const trialDate = new Date(normalized);
-            if (!isNaN(trialDate.getTime())) {
-              const now = new Date();
-              if (trialDate <= now) {
-                dbSaysOver = true;
-              }
-            }
-          }
-          // If DB has a definitive row, use DB result OR the sent emails log (both considered)
-          if (dbSaysOver) return true;
-          // else fall through to the sent-emails log check below
-        }
-      }
-    } catch (dbErr) {
-      // If DB check fails, log and fall back to file-based check below
-      console.error('[isDemoOver] DB check failed, falling back to local log check:', dbErr);
-    }
-
-    // Fallback: existing behavior - check sent emails log count
-    const log = readSentEmailsLog();
-    return Array.isArray(log) && log.length >= 100;
-  } catch (e) {
-    console.error('[isDemoOver] Unexpected error:', e);
-    return false;
-  }
-}
-
-ipcMain.handle('get-licence-from-localstorage', async (event, licence) => {
-  return licence || '';
-});
-
-async function setTrialEndedForLicence(licence) {
-  try {
-    const connection = await createDbConnectionWithFallback();
-    const [result] = await connection.execute(
-      'UPDATE user SET trialEnded = 1 WHERE licence = ?',
-      [licence]
-    );
-    console.log('[SQL] UPDATE result:', result); // LOG
-    await connection.end();
-    return result.affectedRows > 0;
-  } catch (err) {
-    console.error('TrialEnded frissítési hiba:', err);
-    return false;
-  }
-}
-
-ipcMain.handle('is-demo-over', async (event) => {
-  // Try to obtain licence from renderer localStorage so we can consult the DB
-  let licence = null;
-  try {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      licence = await win.webContents.executeJavaScript('localStorage.getItem("licence")');
-    }
-  } catch (e) {
-    console.error('[is-demo-over] Could not read licence from renderer localStorage:', e);
-  }
-
-  const demoOver = await isDemoOver(licence);
-  if (demoOver) {
-    try {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        console.log('[DEMO OVER] Licence:', licence); // LOG
-        if (licence) {
-          const result = await setTrialEndedForLicence(licence);
-          console.log('[DEMO OVER] setTrialEndedForLicence result:', result); // LOG
-        } else {
-          console.log('[DEMO OVER] Licence kulcs nem található a localStorage-ben!');
-        }
-      }
-    } catch (e) {
-      console.error('[is-demo-over] Error while handling demo-over cleanup:', e);
-    }
-    try {
-      // localStorage here refers to the main process global (not renderer). Try to remove if present in a safe way.
-      if (typeof localStorage !== 'undefined' && localStorage) {
-        localStorage.removeItem('isLicenced');
-        localStorage.removeItem('licence');
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-  return demoOver;
-});
-
-// Return trial status (trialEndDate, remainingGenerations) for the current licence.
-ipcMain.handle('get-trial-status', async (event) => {
-  let licence = null;
-  try {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      licence = await win.webContents.executeJavaScript('localStorage.getItem("licence")');
-    }
-  } catch (e) {
-    console.error('[get-trial-status] Could not read licence from renderer localStorage:', e);
-  }
-
-  try {
-    if (licence) {
-      const connection = await createDbConnectionWithFallback();
-      const [rows] = await connection.execute('SELECT trialEndDate, remainingGenerations FROM user WHERE licence = ? LIMIT 1', [licence]);
-      await connection.end();
-      if (Array.isArray(rows) && rows.length > 0) {
-        const row = rows[0];
-        return {
-          trialEndDate: row.trialEndDate || null,
-          remainingGenerations: typeof row.remainingGenerations !== 'undefined' && row.remainingGenerations !== null ? Number(row.remainingGenerations) : null,
-          licence: licence
-        };
-      }
-    }
-  } catch (err) {
-    console.error('[get-trial-status] DB error:', err);
-  }
-
-  // Fallback: return nulls and provide sent log count so renderer can decide
-  try {
-    const log = readSentEmailsLog();
-    return {
-      trialEndDate: null,
-      remainingGenerations: null,
-      licence: licence,
-      sentEmailsCount: Array.isArray(log) ? log.length : 0
-    };
-  } catch (err) {
-    return { trialEndDate: null, remainingGenerations: null, licence: licence };
-  }
-});
-
-// API kulcs kezelése
-ipcMain.handle('setApiKey', async (event, apiKey) => {
-  config.OPENAI_API_KEY = apiKey;
-  saveConfig(config);
-  openai.apiKey = apiKey;
-  return true;
-});
-
-ipcMain.handle('getApiKey', async () => {
-  const apiKey = await getSecret('OpenAPIKey');
-  if (!apiKey) {
-    throw new Error('OpenAPI kulcs nincs beállítva Keytarban!');
-  }
-  return apiKey;
-});
-
-// Add to settings defaults
-const defaultSettings = {
-  autoSend: false,
-  halfAuto: false,
-  autoSendStartTime: "08:00",
-  autoSendEndTime: "16:00",
-  displayMode: "windowed",
-  LeftNavBarOn: true,
-  greeting: "Tisztelt Ügyfelünk!",
-  signature: "Üdvözlettel,\nAz Ön csapata",
-  signatureText: "",
-  signatureImage: "",
-  ignoredEmails: [], // Új: lista az ignorált email címekhez
-  minEmailDate: "", 
-  maxEmailDate: ""
-};
-
-function readSettings() {
-  try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const fileSettings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
-  return { ...defaultSettings, ...fileSettings, ignoredEmails: fileSettings.ignoredEmails || [] };
-    }
-  } catch (err) {
-    console.error('Hiba a beállítások beolvasásakor:', err);
-  }
-  return { ...defaultSettings };
-}
-
-function saveSettings(settings) {
-  try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Hiba a beállítások mentésekor:', err);
-  }
-}
-
-let settings = readSettings();
-let autoSend = settings.autoSend || false;
-let halfAutoSend = settings.halfAuto || false;
-
-ipcMain.handle("getAutoSend", async () => {
-  return autoSend;
-});
-
-ipcMain.handle("getHalfAutoSend", async () => {
-  return halfAutoSend;
-});
-
-
-let emailMonitoringInterval = null;
-let internetMonitorInterval = null;
-let lastInternetStatus = null;
-
-function startInternetMonitoring() {
-  if (internetMonitorInterval) clearInterval(internetMonitorInterval);
-  const emitStatus = (online) => {
-    if (online) {
-      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('internet-connection-restored'));
-    } else {
-      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('no-internet-connection'));
-    }
-  };
-  const checkNow = async () => {
-    try {
-      const ok = await checkInternetConnection();
-      if (lastInternetStatus === null) {
-        // első állapot: mindig küldjük ki (offline-nál azonnal vált)
-        emitStatus(ok);
-      } else if (ok !== lastInternetStatus) {
-        emitStatus(ok);
-      }
-      lastInternetStatus = ok;
-    } catch {
-      if (lastInternetStatus !== false) emitStatus(false);
-      lastInternetStatus = false;
-    }
-  };
-  // Azonnali első ellenőrzés
-  checkNow();
-  internetMonitorInterval = setInterval(checkNow, 3000); // 3 mp
-}
-
-function stopInternetMonitoring() {
-  if (internetMonitorInterval) {
-    clearInterval(internetMonitorInterval);
-    internetMonitorInterval = null;
-  }
-}
-
-let smtpHandler = null;
-
-let repliedEmailIds = readRepliedEmails();
-let replyInProgressIds = [];
+// =============================================================================
+// EMAIL PROVIDER FUNCTIONS
+// =============================================================================
 
 async function getEmailsBasedOnProvider() {
+  const authState = getAuthState();
+  const settings = getSettings();
   let emails = [];
 
   if (authState.provider === 'smtp') {
@@ -489,13 +141,12 @@ async function getEmailsBasedOnProvider() {
     emails = await getUnreadEmails();
   } else {
     console.error('Invalid email provider configured:', authState.provider);
-    return []; // Return an empty array if no valid provider is configured
+    return [];
   }
 
-  // Log the number of emails fetched
   console.log(`Fetched ${emails.length} emails from ${authState.provider} provider.`);
 
-  // --- DÁTUM SZŰRÉS JAVÍTÁS ---
+  // Dátum szűrés
   if (settings.minEmailDate || settings.maxEmailDate) {
     const minDate = settings.minEmailDate ? new Date(settings.minEmailDate) : null;
     if (minDate) minDate.setHours(0, 0, 0, 0);
@@ -521,14 +172,14 @@ async function getEmailsBasedOnProvider() {
     });
   }
 
-  //console.log('Emails after date filtering:', emails.map(email => ({ id: email.id, subject: email.subject })));
   return emails;
 }
 
 async function getEmailByIdBasedOnProvider(id) {
+  const authState = getAuthState();
   if (authState.provider === 'smtp') {
     if (!smtpHandler || !smtpHandler.imap) {
-      throw new Error('SMTP/IMAP connection is not established. Please check your connection and try again.');
+      throw new Error('SMTP/IMAP connection is not established.');
     }
     return await smtpHandler.getEmailById(id);
   } else if (authState.provider === 'gmail') {
@@ -538,36 +189,40 @@ async function getEmailByIdBasedOnProvider(id) {
   }
 }
 
-function checkInternetConnection() {
-  return new Promise((resolve) => {
-    dns.lookup('google.com', (err) => {
-      resolve(!err);
-    });
-  });
-}
+// =============================================================================
+// EMAIL MONITORING
+// =============================================================================
 
 function startEmailMonitoring() {
   if (emailMonitoringInterval) {
     clearInterval(emailMonitoringInterval);
   }
-  // Use a regular interval to trigger checks, but the heavy work is in checkEmailsOnce
+  // Changed from 5000ms to 30000ms (30 seconds) to reduce IMAP load
+  // The SMTP handler now has internal caching and throttling as well
   emailMonitoringInterval = setInterval(async () => {
     try {
       await checkEmailsOnce();
     } catch (err) {
       console.error('Error in scheduled email check:', err);
     }
-  }, 5000);
+  }, 30000);
 }
 
-let emailCheckInProgress = false;
+function stopEmailMonitoring() {
+  if (emailMonitoringInterval) {
+    clearInterval(emailMonitoringInterval);
+    emailMonitoringInterval = null;
+  }
+}
+
 async function checkEmailsOnce() {
-  // Avoid overlapping runs
   if (emailCheckInProgress) return;
   emailCheckInProgress = true;
+  
   try {
-    // --- INTERNET CHECK: skip if offline ---
+    const settings = getSettings();
     const hasInternet = await checkInternetConnection();
+    
     if (!hasInternet) {
       console.log('No internet connection, skipping email check.');
       BrowserWindow.getAllWindows().forEach(window => window.webContents.send('no-internet-connection'));
@@ -583,100 +238,42 @@ async function checkEmailsOnce() {
 
     console.log('Checking emails at:', currentTimeString);
 
-    // --- SPAM + IGNORED szűrés ---
+    // SPAM + IGNORED szűrés
     const spamKeywords = ['hirlevel', 'no-reply','noreply','no reply','spam', 'junk', 'promóció', 'reklám', 'ad', 'free money', "guaranteed", "amazing deal", "act now", "limited time", "click here", "buy now"];
     let unreadEmails = await getEmailsBasedOnProvider();
     const ignoredEmailsList = (settings.ignoredEmails || []).map(e => e.trim().toLowerCase()).filter(Boolean);
-    const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+    const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const spamRegexes = spamKeywords.map(k => new RegExp(`\\b${escapeRegExp(k)}\\b`, 'i'));
 
     const beforeCount = unreadEmails.length;
-    const filteredOut = [];
     unreadEmails = unreadEmails.filter(email => {
       const subject = (email.subject || '').toLowerCase();
       const from = (email.from || '').toLowerCase();
 
       if (email.labelIds && Array.isArray(email.labelIds) && email.labelIds.includes('SPAM')) {
-        filteredOut.push({ id: email.id, reason: 'label SPAM', subject: email.subject, from: email.from });
         return false;
       }
       const matchedSpam = spamRegexes.find(rx => rx.test(email.subject || '') || rx.test(email.from || ''));
       if (matchedSpam) {
-        filteredOut.push({ id: email.id, reason: 'spamKeyword', matched: matchedSpam.source, subject: email.subject, from: email.from });
         return false;
       }
       const matchedIgnored = ignoredEmailsList.find(ignored => from.includes(ignored));
       if (matchedIgnored) {
-        filteredOut.push({ id: email.id, reason: 'ignoredEmail', matchedIgnored, subject: email.subject, from: email.from });
         return false;
       }
       return true;
     });
 
     console.log('Fetched emails (spam+ignored szűrve):', unreadEmails.length, `(before: ${beforeCount})`);
-    //if (filteredOut.length) console.log('Filtered out emails (with reasons):', filteredOut);
 
-    // Persist filtered unread emails to cache so renderer views can read from disk
     try { saveCachedEmails(unreadEmails); } catch (err) { console.error('Failed to save cached emails:', err); }
     BrowserWindow.getAllWindows().forEach(window => window.webContents.send('emails-updated', unreadEmails));
 
-    // Handle auto replies (re-using existing logic)
+    // Auto reply kezelés
     if (settings.autoSend && currentTimeString >= settings.autoSendStartTime && currentTimeString <= settings.autoSendEndTime && unreadEmails && unreadEmails.length > 0) {
       console.log(`Processing ${unreadEmails.length} emails for auto-reply`);
       for (const email of unreadEmails) {
-        try {
-          const subjectLower = (email.subject || '').toLowerCase();
-          const fromLower = (email.from || '').toLowerCase();
-          if (subjectLower.includes('noreply') || fromLower.includes('noreply') || subjectLower.includes('no reply') || fromLower.includes('no reply') || subjectLower.includes('no-reply') || fromLower.includes('no-reply')) {
-            console.log('Skipping noreply email:', email.id, email.subject, email.from);
-            continue;
-          }
-          if (!repliedEmailIds.includes(email.id) && !replyInProgressIds.includes(email.id)) {
-            replyInProgressIds.push(email.id);
-            console.log('Processing email for reply:', email.id, email.subject);
-            let fullEmail;
-            try { fullEmail = await getEmailByIdBasedOnProvider(email.id); } catch (err) {
-              console.error('getEmailById error:', err);
-              replyInProgressIds = replyInProgressIds.filter(id => id !== email.id);
-              continue;
-            }
-            let generatedReply;
-            try { generatedReply = await generateReply(fullEmail); } catch (err) { console.error('generateReply error:', err); replyInProgressIds = replyInProgressIds.filter(id => id !== email.id); continue; }
-            let replyResult;
-            try {
-              if (authState.provider === 'smtp' && smtpHandler) {
-                const toAddress = extractEmailAddress(fullEmail.from);
-                if (!toAddress) { console.error('Nem sikerült email címet kinyerni a from mezőből:', fullEmail.from); replyInProgressIds = replyInProgressIds.filter(id => id !== email.id); continue; }
-                replyResult = await sendReply({ to: toAddress, subject: `${fullEmail.subject}`, body: generatedReply, emailId: fullEmail.id, originalEmail: { to: fullEmail.from || 'Ismeretlen feladó', subject: fullEmail.subject, body: fullEmail.body } });
-              } else if (authState.provider === 'gmail') {
-                replyResult = await sendReply({ to: fullEmail.from, subject: `${fullEmail.subject}`, body: generatedReply, emailId: fullEmail.id, originalEmail: { to: fullEmail.from || 'Ismeretlen feladó', subject: fullEmail.subject, body: fullEmail.body } });
-              }
-            } catch (err) { console.error('sendReply error:', err); replyInProgressIds = replyInProgressIds.filter(id => id !== email.id); continue; }
-
-            if ((replyResult && replyResult.success) || (replyResult && replyResult.id)) {
-              let markedAsRead = false;
-              try {
-                if (authState.provider === 'smtp' && smtpHandler) {
-                  await smtpHandler.markAsRead(email.id);
-                  markedAsRead = true;
-                } else if (authState.provider === 'gmail') {
-                  const auth = await authorize();
-                  const gmail = google.gmail({ version: 'v1', auth });
-                  await gmail.users.messages.modify({ userId: 'me', id: email.id, requestBody: { removeLabelIds: ['UNREAD'] } });
-                  markedAsRead = true;
-                }
-              } catch (err) { console.error('Error marking email as read:', err); }
-
-              if (markedAsRead) {
-                repliedEmailIds.push(email.id);
-                saveRepliedEmails(repliedEmailIds);
-                try { removeEmailFromCache(email.id); } catch (err) { console.error('Failed to remove email from cache after auto-reply:', err); }
-                console.log('Reply sent and email marked as read for:', email.id);
-              }
-            }
-            replyInProgressIds = replyInProgressIds.filter(id => id !== email.id);
-          }
-        } catch (err) { console.error('Error processing email for auto-reply:', err); }
+        await processEmailForAutoReply(email);
       }
     }
   } finally {
@@ -684,144 +281,97 @@ async function checkEmailsOnce() {
   }
 }
 
-function stopEmailMonitoring() {
-  if (emailMonitoringInterval) {
-    clearInterval(emailMonitoringInterval);
-    emailMonitoringInterval = null;
-  }
-}
-
-// IPC handler: Get and set ignored emails (globális scope-ban, ne csak startEmailMonitoring-on belül)
-ipcMain.handle('getIgnoredEmails', async () => {
-  return settings.ignoredEmails || [];
-});
-
-ipcMain.handle('setIgnoredEmails', async (event, ignoredEmails) => {
-  settings.ignoredEmails = Array.isArray(ignoredEmails)
-    ? ignoredEmails.filter(e => typeof e === 'string').map(e => e.trim()).filter(Boolean)
-    : [];
-  saveSettings(settings);
-  return true;
-});
-
-ipcMain.handle("setAutoSend", async (event, value) => {
-  autoSend = value;
-  settings.autoSend = value;
-  saveSettings(settings);
-  // Always start monitoring (it will just skip auto-reply if autoSend is false)
-  startEmailMonitoring();
-});
-ipcMain.handle("setHalfAutoSend", async (event, value) => {
-  halfAutoSend = value;
-  settings.halfAuto = value;
-  saveSettings(settings);
-  // Always start monitoring (it will just skip auto-reply if halfAuto is false)
-  startEmailMonitoring();
-});
-
-
-ipcMain.handle("setAutoSendTimes", async (event, { startTime, endTime }) => {
-  settings.autoSendStartTime = startTime;
-  settings.autoSendEndTime = endTime;
-  saveSettings(settings);
-  return true;
-});
-
-ipcMain.handle("getAutoSendTimes", async (event) => {
-  return {
-    startTime: settings.autoSendStartTime,
-    endTime: settings.autoSendEndTime
-  };
-});
-
-ipcMain.handle('getMinEmailDate', async () => {
-  return settings.minEmailDate || "";
-});
-
-ipcMain.handle('setMinEmailDate', async (event, dateStr) => {
-  settings.minEmailDate = dateStr;
-  saveSettings(settings);
-  return true;
-});
-
-ipcMain.handle('getFromDate', async () => {
-  return settings.fromDate || "";
-});
-
-ipcMain.handle('setFromDate', async (event, dateStr) => {
-  settings.fromDate = dateStr;
-  saveSettings(settings);
-  return true;
-});
-
-ipcMain.handle('getMaxEmailDate', async () => {
-  return settings.maxEmailDate || "";
-});
-
-ipcMain.handle('setMaxEmailDate', async (event, dateStr) => {
-  settings.maxEmailDate = dateStr;
-  saveSettings(settings);
-  return true;
-});
-
-function readRepliedEmails() {
+async function processEmailForAutoReply(email) {
+  const authState = getAuthState();
+  
   try {
-    if (fs.existsSync(REPLIED_EMAILS_FILE)) {
-      return JSON.parse(fs.readFileSync(REPLIED_EMAILS_FILE, 'utf-8'));
+    const subjectLower = (email.subject || '').toLowerCase();
+    const fromLower = (email.from || '').toLowerCase();
+    if (subjectLower.includes('noreply') || fromLower.includes('noreply') || 
+        subjectLower.includes('no reply') || fromLower.includes('no reply') || 
+        subjectLower.includes('no-reply') || fromLower.includes('no-reply')) {
+      console.log('Skipping noreply email:', email.id);
+      return;
     }
-  } catch (err) {
-    console.error('Hiba a válaszolt levelek beolvasásakor:', err);
-  }
-  return [];
-}
+    
+    if (!repliedEmailIds.includes(email.id) && !replyInProgressIds.includes(email.id)) {
+      replyInProgressIds.push(email.id);
+      console.log('Processing email for reply:', email.id, email.subject);
+      
+      let fullEmail;
+      try { 
+        fullEmail = await getEmailByIdBasedOnProvider(email.id); 
+      } catch (err) {
+        console.error('getEmailById error:', err);
+        replyInProgressIds = replyInProgressIds.filter(id => id !== email.id);
+        return;
+      }
+      
+      let generatedReply;
+      try { 
+        generatedReply = await generateReply(fullEmail); 
+      } catch (err) { 
+        console.error('generateReply error:', err); 
+        replyInProgressIds = replyInProgressIds.filter(id => id !== email.id); 
+        return; 
+      }
+      
+      let replyResult;
+      try {
+        if (authState.provider === 'smtp' && smtpHandler) {
+          const toAddress = extractEmailAddress(fullEmail.from);
+          if (!toAddress) { 
+            console.error('Nem sikerült email címet kinyerni:', fullEmail.from); 
+            replyInProgressIds = replyInProgressIds.filter(id => id !== email.id); 
+            return; 
+          }
+          replyResult = await sendReply({ 
+            to: toAddress, 
+            subject: fullEmail.subject, 
+            body: generatedReply, 
+            emailId: fullEmail.id, 
+            originalEmail: { to: fullEmail.from || 'Ismeretlen feladó', subject: fullEmail.subject, body: fullEmail.body } 
+          });
+        } else if (authState.provider === 'gmail') {
+          replyResult = await sendReply({ 
+            to: fullEmail.from, 
+            subject: fullEmail.subject, 
+            body: generatedReply, 
+            emailId: fullEmail.id, 
+            originalEmail: { to: fullEmail.from || 'Ismeretlen feladó', subject: fullEmail.subject, body: fullEmail.body } 
+          });
+        }
+      } catch (err) { 
+        console.error('sendReply error:', err); 
+        replyInProgressIds = replyInProgressIds.filter(id => id !== email.id); 
+        return; 
+      }
 
-function saveRepliedEmails(ids) {
-  try {
-    fs.writeFileSync(REPLIED_EMAILS_FILE, JSON.stringify(ids, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Hiba a válaszolt levelek mentésekor:', err);
-  }
-}
+      if ((replyResult && replyResult.success) || (replyResult && replyResult.id)) {
+        let markedAsRead = false;
+        try {
+          if (authState.provider === 'smtp' && smtpHandler) {
+            await smtpHandler.markAsRead(email.id);
+            markedAsRead = true;
+          } else if (authState.provider === 'gmail') {
+            const auth = await authorize();
+            const gmail = google.gmail({ version: 'v1', auth });
+            await gmail.users.messages.modify({ userId: 'me', id: email.id, requestBody: { removeLabelIds: ['UNREAD'] } });
+            markedAsRead = true;
+          }
+        } catch (err) { console.error('Error marking email as read:', err); }
 
-function readGeneratedReplies() {
-  try {
-    if (fs.existsSync(GENERATED_REPLIES_FILE)) {
-      const data = fs.readFileSync(GENERATED_REPLIES_FILE, 'utf-8');
-      return JSON.parse(data);
+        if (markedAsRead) {
+          repliedEmailIds.push(email.id);
+          saveRepliedEmails(repliedEmailIds);
+          try { removeEmailFromCache(email.id); } catch (err) { console.error('Failed to remove email from cache:', err); }
+          console.log('Reply sent and email marked as read for:', email.id);
+        }
+      }
+      replyInProgressIds = replyInProgressIds.filter(id => id !== email.id);
     }
-    return {};
-  } catch (err) {
-    console.error('Hiba a generated_replies.json beolvasásakor:', err);
-    return {};
-  }
-}
-
-function saveGeneratedReplies(replies) {
-  try {
-    fs.writeFileSync(GENERATED_REPLIES_FILE, JSON.stringify(replies, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Hiba a generated_replies.json mentésekor:', err);
-  }
-}
-
-// Cached emails helpers: the monitoring loop will write the filtered unread emails
-function readCachedEmails() {
-  try {
-    if (fs.existsSync(CACHED_EMAILS_FILE)) {
-      const data = fs.readFileSync(CACHED_EMAILS_FILE, 'utf-8');
-      return JSON.parse(data);
-    }
-  } catch (err) {
-    console.error('Hiba a cached_emails.json beolvasásakor:', err);
-  }
-  return [];
-}
-
-function saveCachedEmails(emails) {
-  try {
-    fs.writeFileSync(CACHED_EMAILS_FILE, JSON.stringify(Array.isArray(emails) ? emails : [], null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Hiba a cached_emails.json mentésekor:', err);
+  } catch (err) { 
+    console.error('Error processing email for auto-reply:', err); 
   }
 }
 
@@ -830,7 +380,6 @@ function removeEmailFromCache(emailId) {
     const emails = readCachedEmails();
     const filtered = emails.filter(e => e.id !== emailId);
     saveCachedEmails(filtered);
-    // Notify renderer of update
     BrowserWindow.getAllWindows().forEach(window => {
       window.webContents.send('emails-updated', filtered);
     });
@@ -839,694 +388,52 @@ function removeEmailFromCache(emailId) {
   }
 }
 
+// =============================================================================
+// DEMO/TRIAL FUNCTIONS
+// =============================================================================
 
-// Excel fájl kezelése
-async function readExcelDataWithImages() {
+async function isDemoOver(licence = null) {
   try {
-    const excelFile = path.join(app.getPath('userData'), 'adatok.xlsx');
-    if (fs.existsSync(excelFile)) {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(excelFile);
-      const allData = {};
-      const allImages = [];
-      workbook.eachSheet((worksheet, sheetId) => {
-        const rows = [];
-        worksheet.eachRow((row, rowNumber) => {
-          rows.push(row.values);
-        });
-        allData[worksheet.name] = rows;
-      });
-      // Képek kigyűjtése
-      workbook.media.forEach((media, idx) => {
-        if (media.type === 'image') {
-          // base64 string
-          allImages.push({
-            buffer: media.buffer,
-            extension: media.extension || 'png',
-            base64: `data:image/${media.extension || 'png'};base64,${media.buffer.toString('base64')}`
-          });
-        }
-      });
-      return { allData, allImages };
-    }
-  } catch (err) {
-    console.error('Hiba az Excel fájl beolvasásakor (képekkel):', err);
-  }
-  return { allData: {}, allImages: [] };
-}
-
-// Új Excel fájl feltöltése
-ipcMain.handle('upload-excel-file', async (event, fileContent) => {
-  try {
-    // Accept either raw content or an object: { content, originalPath }
-    let contentBuffer = null;
-    let originalPath = null;
-    if (fileContent && typeof fileContent === 'object' && (fileContent.content || fileContent.originalPath)) {
-      if (fileContent.content) contentBuffer = Buffer.from(fileContent.content);
-      if (fileContent.originalPath) originalPath = fileContent.originalPath;
-    } else {
-      contentBuffer = Buffer.from(fileContent);
-    }
-
-    // Always save uploads to the userData folder as 'adatok.xlsx' (overwrite existing)
-    const userDataDir = app.getPath('userData');
-    if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
-    const targetPath = path.join(userDataDir, 'adatok.xlsx');
-
-    // Write the file content to disk (overwrite)
-    fs.writeFileSync(targetPath, contentBuffer);
-
-    // Verify the written file is a readable workbook
-    const workbook = XLSX.readFile(targetPath);
-    if (!workbook.SheetNames || !workbook.SheetNames.length) {
-      // Remove the invalid file
-      try { fs.unlinkSync(targetPath); } catch (e) {}
-      throw new Error('Az Excel fájl üres vagy nem olvasható!');
-    }
-
-    // Determine the original filename (base name) if provided
-    let filename = null;
     try {
-      if (originalPath) filename = path.basename(originalPath);
-    } catch (e) {
-      filename = null;
-    }
-
-    // Return success, absolute path and original filename (if known)
-    return { success: true, path: targetPath, filename };
-  } catch (error) {
-    console.error('Hiba az Excel fájl feltöltésekor:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-//Új kép fájl feltöltése
-ipcMain.handle('upload-image-file', async (event, fileContent) => {
-  try {
-    const imagesDir = path.join(app.getPath('userData'), 'images');
-    if (!fs.existsSync(imagesDir)) {
-      fs.mkdirSync(imagesDir, { recursive: true });
-    }
-    const targetPath = path.join(imagesDir, 'signature.png');
-    fs.writeFileSync(targetPath, Buffer.from(fileContent));
-    // Állítsuk be a settings.signatureImage-t is!
-    settings.signatureImage = targetPath;
-    saveSettings(settings);
-    return { success: true };
-  } catch (error) {
-    console.error('Hiba a kép fájl feltöltésekor:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('show-image-dialog', async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openFile'],
-    filters: [
-      { name: 'Image Files', extensions: ['png', 'jpg', 'jpeg'] }
-    ]
-  });
-  
-  if (!result.canceled && result.filePaths.length > 0) {
-    try {
-      const filePath = result.filePaths[0];
-      const content = fs.readFileSync(filePath);
-      return { success: true, content: content, filePath };
-    } catch (error) {
-      console.error('Hiba a fájl olvasásakor:', error);
-      return { success: false, error: error.message };
-    }
-  }
-  return { success: false, error: 'No file selected' };
-});
-
-// Show directory picker to select a folder for import
-ipcMain.handle('show-directory-dialog', async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openDirectory']
-  });
-
-  if (!result.canceled && result.filePaths.length > 0) {
-    return { success: true, dirPath: result.filePaths[0] };
-  }
-  return { success: false, error: 'No directory selected' };
-});
-
-// Import a folder recursively, extract text from supported files and generate embeddings
-// Note: maxChunkChars default increased substantially to avoid aggressive
-// splitting. Large values may increase embedding API cost; consider lowering
-// or adding a user setting if needed.
-ipcMain.handle('import-folder-embeddings', async (event, { dirPath, model = 'text-embedding-3-small', maxChunkChars = 120000 } = {}) => {
-  try {
-    if (!dirPath || !fs.existsSync(dirPath)) {
-      return { success: false, error: 'Directory does not exist' };
-    }
-
-    const supported = new Set(['.txt', '.csv', '.xlsx', '.xls']);
-
-    // Walk directory recursively
-    const walk = (dir) => {
-      let results = [];
-      const list = fs.readdirSync(dir, { withFileTypes: true });
-      for (const dirent of list) {
-        const full = path.join(dir, dirent.name);
-        if (dirent.isDirectory()) {
-          results = results.concat(walk(full));
-        } else if (dirent.isFile()) {
-          const ext = path.extname(dirent.name).toLowerCase();
-          if (supported.has(ext)) results.push(full);
-        }
-      }
-      return results;
-    };
-
-    const files = walk(dirPath);
-    const totalFiles = files.length;
-
-    const embeddingsOut = [];
-
-    // dynamic import for xlsx library (handle default export vs namespace)
-    let XLSX = null;
-    try {
-      const mod = await import('xlsx');
-      XLSX = mod && (mod.default || mod);
-    } catch (e) {
-      try {
-        const mod = require('xlsx');
-        XLSX = mod && (mod.default || mod);
-      } catch (e2) {
-        XLSX = null;
-      }
-    }
-    if (!XLSX) {
-      console.warn('[import-folder-embeddings] xlsx library not available; .xlsx files will be skipped');
-    }
-
-    for (let fi = 0; fi < files.length; fi++) {
-      const file = files[fi];
-      const ext = path.extname(file).toLowerCase();
-      let text = '';
-
-      try {
-        if (ext === '.txt' || ext === '.csv') {
-          text = fs.readFileSync(file, 'utf8');
-        } else if ((ext === '.xlsx' || ext === '.xls') && XLSX) {
-          try {
-            // Parse workbook into structured cell entries instead of flattening to CSV.
-            // This preserves sheet name, row and column so we can locate cells like "Ügyfelek!G763" later.
-            const reader = typeof XLSX.readFile === 'function' ? XLSX : (XLSX.default || XLSX);
-            if (typeof reader.readFile !== 'function') {
-              throw new Error('XLSX.readFile is not available');
+      if (licence) {
+        const trialStatus = await getTrialStatusFromDb(licence);
+        if (trialStatus) {
+          let dbSaysOver = false;
+          if (typeof trialStatus.remainingGenerations !== 'undefined' && trialStatus.remainingGenerations !== null) {
+            const remaining = Number(trialStatus.remainingGenerations);
+            if (!Number.isNaN(remaining) && remaining <= 0) {
+              dbSaysOver = true;
             }
-            const wb = reader.readFile(file);
-            // We'll build an array of small entries (per cell). For long cell values we use the
-            // embeddings-helper.chunkText dynamically to split while keeping per-cell indices.
-            const entries = [];
-            // dynamic import of local chunker to handle very long cell contents without loss
-            let chunkTextFn = null;
-            try {
-              const { pathToFileURL } = await import('url');
-              const helperPath = path.join(process.cwd(), 'src', 'backend', 'embeddings-helper.js');
-              const helperUrl = pathToFileURL(helperPath).href;
-              const helper = await import(helperUrl);
-              chunkTextFn = helper.chunkText || helper.default?.chunkText || helper.chunkText;
-            } catch (ie) {
-              // If we can't import the helper, fallback to simple per-cell strings
-              chunkTextFn = null;
-            }
-
-            for (const sname of wb.SheetNames) {
-              const ws = wb.Sheets[sname];
-              // Convert to array-of-arrays so we can iterate rows/cols reliably
-              const data = (XLSX.utils && XLSX.utils.sheet_to_json)
-                ? XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-                : ((reader.utils && reader.utils.sheet_to_json)
-                  ? reader.utils.sheet_to_json(ws, { header: 1, defval: '' })
-                  : []);
-              for (let r = 0; r < data.length; r++) {
-                const row = data[r] || [];
-                for (let c = 0; c < row.length; c++) {
-                  const cellVal = row[c];
-                  const cellText = (typeof cellVal === 'string' || typeof cellVal === 'number') ? String(cellVal) : (cellVal ? JSON.stringify(cellVal) : '');
-                  // compute column letter (A, B, C...)
-                  let col = c + 1;
-                  let colLetter = '';
-                  while (col > 0) {
-                    const rem = (col - 1) % 26;
-                    colLetter = String.fromCharCode(65 + rem) + colLetter;
-                    col = Math.floor((col - 1) / 26);
-                  }
-                  // If the cell is large and chunkTextFn is available, split preserving indices
-                  if (chunkTextFn && cellText.length > 8000) {
-                    const parts = chunkTextFn(cellText, 16000, Math.floor(16000 * 0.08)) || [];
-                    for (let pi = 0; pi < parts.length; pi++) {
-                      const p = parts[pi];
-                      entries.push({ file, sheet: sname, row: r + 1, col: c + 1, colLetter, cellAddress: `${sname}!${colLetter}${r + 1}`, text: p.text || p, cellChunkIndex: pi, cellChunkStart: p.start || null, cellChunkEnd: p.end || null });
-                    }
-                  } else {
-                    entries.push({ file, sheet: sname, row: r + 1, col: c + 1, colLetter, cellAddress: `${sname}!${colLetter}${r + 1}`, text: cellText, cellChunkIndex: 0, cellChunkStart: 0, cellChunkEnd: cellText.length });
-                  }
-                }
+          }
+          if (!dbSaysOver && trialStatus.trialEndDate) {
+            const normalized = trialStatus.trialEndDate.replace(' ', 'T');
+            const trialDate = new Date(normalized);
+            if (!isNaN(trialDate.getTime())) {
+              const now = new Date();
+              if (trialDate <= now) {
+                dbSaysOver = true;
               }
             }
-
-            // Instead of concatenating into a single huge text blob, we attach a structured
-            // representation to `text` as JSON so later code knows this came from Excel.
-            // The downstream embedding loop will detect `xlsxEntries` and handle them.
-            text = JSON.stringify({ xlsxEntries: entries });
-          } catch (e) {
-            console.error('[import-folder-embeddings] xlsx read error for', file, e);
-            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, status: 'error', error: e?.message || String(e) }));
           }
-        } else {
-          // unsupported or no parser - skip
-        }
-      } catch (readErr) {
-        console.error('[import-folder-embeddings] read error for', file, readErr);
-      }
-
-      text = (text || '').toString().trim();
-      if (!text) {
-        // notify progress: skipped
-        BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, status: 'skipped', reason: 'empty' }));
-        continue;
-      }
-
-      // If the text is a structured Excel parse (our earlier JSON marker), process per-cell entries
-      let excelEntries = null;
-      try {
-        const maybe = JSON.parse(text);
-        if (maybe && Array.isArray(maybe.xlsxEntries)) excelEntries = maybe.xlsxEntries;
-      } catch (e) {
-        excelEntries = null;
-      }
-
-      if (Array.isArray(excelEntries) && excelEntries.length) {
-        // Batch embed per-cell entries for speed while preserving sheet/row/col metadata.
-        // Use a bounded concurrency worker pool to parallelize API calls safely.
-        const BATCH = 200; // batch size for embeddings
-        const CONCURRENCY = 2; // number of concurrent embedding requests
-        const batches = [];
-        for (let bi = 0; bi < excelEntries.length; bi += BATCH) batches.push(excelEntries.slice(bi, bi + BATCH));
-        const _newExcelIds = [];
-
-        let nextBatchIdx = 0;
-        const worker = async () => {
-          while (true) {
-            const i = nextBatchIdx++;
-            if (i >= batches.length) break;
-            const slice = batches[i];
-            const inputs = slice.map(s => String(s.text || ''));
-            try {
-              BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, chunkIndex: i + 1, totalChunks: batches.length, status: 'embedding' }));
-              const resp = await openai.embeddings.create({ model, input: inputs });
-              const data = (resp && resp.data) ? resp.data : [];
-              for (let j = 0; j < data.length; j++) {
-                const emb = data[j] && data[j].embedding ? data[j].embedding : null;
-                const entry = slice[j];
-                const id = `${fi}-${entry.sheet || 'sheet'}-${entry.row || 0}-${entry.col || 0}-${entry.cellChunkIndex || 0}`;
-                const locationLabel = `${entry.sheet || ''}!${entry.colLetter || ''}${entry.row || ''}`;
-                embeddingsOut.push({ id, file: entry.file, filePath: entry.file, source: locationLabel, title: `${path.basename(entry.file || '')} :: ${locationLabel}`, sheet: entry.sheet, row: entry.row, col: entry.col, colLetter: entry.colLetter, cellAddress: entry.cellAddress, cellChunkIndex: entry.cellChunkIndex, chunkStart: entry.cellChunkStart, chunkEnd: entry.cellChunkEnd, textSnippet: String(entry.text || '').slice(0, 2000), embedding: emb });
-                _newExcelIds.push(id);
-              }
-            } catch (embErr) {
-              console.error('[import-folder-embeddings] excel batch embedding error for', file, embErr);
-              BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, status: 'error', error: embErr?.message || String(embErr) }));
-              // continue to next batch
-            }
-          }
-        };
-
-        const workers = [];
-        for (let w = 0; w < Math.min(CONCURRENCY, batches.length); w++) workers.push(worker());
-        await Promise.all(workers);
-        // Mirror newly embedded Excel entries into the KB file so KB-based queries
-        // (KB.queryByEmbedding / getAllEntries) will include sheet/cell metadata.
-        try {
-          const kbFile = path.join(app.getPath('userData'), 'embeddings_kb.json');
-          let kbExisting = [];
-          try {
-            if (fs.existsSync(kbFile)) kbExisting = JSON.parse(fs.readFileSync(kbFile, 'utf8') || '[]');
-          } catch (re) {
-            kbExisting = [];
-          }
-          const existingIds = new Set(kbExisting.map(x => x.id));
-          const toAdd = [];
-          for (const id of _newExcelIds) {
-            const e = embeddingsOut.find(x => x.id === id);
-            if (!e) continue;
-            if (existingIds.has(id)) continue;
-            const docId = `file-${path.basename(e.file || file)}::${e.sheet || ''}`;
-            const kbEntry = {
-              id: e.id,
-              docId,
-              chunkIndex: e.cellChunkIndex || 0,
-              text: String(e.textSnippet || ''),
-              subject: e.sheet || path.basename(e.file || file),
-              row: e.row || null,
-              col: e.col || null,
-              colLetter: e.colLetter || null,
-              cellAddress: e.cellAddress || null,
-              from: 'excel',
-              date: null,
-              embedding: e.embedding || null,
-              chunkStart: e.chunkStart || null,
-              chunkEnd: e.chunkEnd || null,
-              totalChunks: null,
-              filePath: e.filePath || file
-            };
-            kbExisting.push(kbEntry);
-            toAdd.push(kbEntry.id);
-          }
-          if (toAdd.length) {
-            try {
-              fs.writeFileSync(kbFile, JSON.stringify(kbExisting, null, 2), 'utf8');
-              BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, status: 'kb-mirror', added: toAdd.length }));
-            } catch (we) {
-              console.error('[import-folder-embeddings] failed to write KB file:', we && we.message ? we.message : we);
-            }
-          }
-        } catch (kbMirrorErr) {
-          console.error('[import-folder-embeddings] failed to mirror excel entries to KB:', kbMirrorErr);
-        }
-      } else {
-        // fallback existing behavior: chunk text to avoid very large embedding inputs
-        const chunks = [];
-        for (let i = 0; i < text.length; i += maxChunkChars) {
-          chunks.push(text.slice(i, i + maxChunkChars));
-        }
-
-        for (let ci = 0; ci < chunks.length; ci++) {
-          const chunk = chunks[ci];
-          try {
-            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, chunkIndex: ci + 1, totalChunks: chunks.length, status: 'embedding' }));
-            const resp = await openai.embeddings.create({ model, input: chunk });
-            const emb = resp?.data && resp.data[0] && resp.data[0].embedding ? resp.data[0].embedding : null;
-            // Keep the full chunk as textSnippet (no arbitrary small truncation).
-            // The chunk length is bounded by maxChunkChars above.
-            embeddingsOut.push({ id: `${fi}-${ci}`, file, chunkIndex: ci, textSnippet: chunk, embedding: emb });
-          } catch (embErr) {
-            console.error('[import-folder-embeddings] embedding error for', file, embErr);
-            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, chunkIndex: ci + 1, totalChunks: chunks.length, status: 'error', error: embErr?.message || String(embErr) }));
-          }
+          if (dbSaysOver) return true;
         }
       }
-
-      // file done
-      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('import-progress', { file, index: fi + 1, totalFiles, status: 'done' }));
+    } catch (dbErr) {
+      console.error('[isDemoOver] DB check failed:', dbErr);
     }
 
-    // save embeddings to userData
-    const embeddingsPath = path.join(app.getPath('userData'), 'embeddings.json');
-    try {
-      fs.writeFileSync(embeddingsPath, JSON.stringify(embeddingsOut, null, 2), 'utf8');
-    } catch (writeErr) {
-      console.error('[import-folder-embeddings] write embeddings error', writeErr);
-      return { success: false, error: 'Failed to save embeddings: ' + writeErr.message };
-    }
-
-    return { success: true, embeddingsPath, count: embeddingsOut.length };
-  } catch (err) {
-    console.error('[import-folder-embeddings] unexpected', err);
-    return { success: false, error: err?.message || String(err) };
-  }
-});
-//Értesítések
-ipcMain.handle("getNotifyOnAutoReply", async () => {
-  return settings.notifyOnAutoReply || false;
-});
-
-ipcMain.handle("setNotifyOnAutoReply", async (event, value) => {
-  settings.notifyOnAutoReply = value;
-  saveSettings(settings);
-  return true;
-});
-
-ipcMain.handle("getNotificationEmail", async () => {
-  return settings.notificationEmail || "";
-});
-
-ipcMain.handle("setNotificationEmail", async (event, email) => {
-  settings.notificationEmail = email;
-  saveSettings(settings);
-  return true;
-});
-
-ipcMain.handle('delete-signature-image', async () => {
-  try {
-    let errors = [];
-    // Mindig az src/images/signature.png-t töröljük
-    const imagePath = path.join(__dirname, 'src', 'images', 'signature.png');
-    try {
-      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
-    } catch (e) {
-      errors.push('src/images/signature.png: ' + e.message);
-    }
-    // Töröljük a settingsből is
-    settings.signatureImage = '';
-    saveSettings(settings);
-    if (errors.length > 0) {
-      return { success: false, error: errors.join('; ') };
-    }
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-
-ipcMain.handle('show-file-dialog', async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openFile'],
-    filters: [
-      { name: 'Excel Files', extensions: ['xlsx', 'xls'] }
-    ]
-  });
-  
-  if (!result.canceled && result.filePaths.length > 0) {
-    try {
-      const filePath = result.filePaths[0];
-      const content = fs.readFileSync(filePath);
-      const filename = filePath ? filePath.split(/[/\\\\]/).pop() : null;
-      return { success: true, content: content, filePath, filename };
-    } catch (error) {
-      console.error('Hiba a fájl olvasásakor:', error);
-      return { success: false, error: error.message };
-    }
-  }
-  return { success: false, error: 'No file selected' };
-});
-
-// Excel helpers for renderer: check if adatok.xlsx exists, read and save
-ipcMain.handle('excel-exists', async () => {
-  try {
-    // Prefer the userData copy if present (that's where uploads are written)
-    const userDataExcel = path.join(app.getPath('userData'), 'adatok.xlsx');
-    if (fs.existsSync(userDataExcel)) return true;
-
-    // Fallback to searching common locations (packaged/dev)
-    try {
-      const excelFile = findFile('adatok.xlsx');
-      return fs.existsSync(excelFile);
-    } catch (e) {
-      return false;
-    }
+    const log = readSentEmailsLog();
+    return Array.isArray(log) && log.length >= 100;
   } catch (e) {
-    console.error('excel-exists error', e);
+    console.error('[isDemoOver] Unexpected error:', e);
     return false;
   }
-});
-
-// Return the absolute path to the current adatok.xlsx if it exists, otherwise null
-ipcMain.handle('get-excel-path', async () => {
-  try {
-    // Prefer the copy in userData (uploads are saved here)
-    const userDataExcel = path.join(app.getPath('userData'), 'adatok.xlsx');
-    if (fs.existsSync(userDataExcel)) return userDataExcel;
-
-    // Fallback to searching common locations
-    try {
-      const excelFile = findFile('adatok.xlsx');
-      return fs.existsSync(excelFile) ? excelFile : null;
-    } catch (e) {
-      return null;
-    }
-  } catch (e) {
-    return null;
-  }
-});
-
-ipcMain.handle('read-excel-file', async () => {
-  try {
-    // Prefer the userData copy
-    let excelFile = path.join(app.getPath('userData'), 'adatok.xlsx');
-    if (!fs.existsSync(excelFile)) {
-      try {
-        excelFile = findFile('adatok.xlsx');
-      } catch (e) {
-        return { success: false, error: 'No file' };
-      }
-    }
-
-    // Use XLSX to read quickly into arrays
-    const workbook = XLSX.readFile(excelFile, { cellDates: true });
-    const sheets = workbook.SheetNames.map((name) => {
-      const ws = workbook.Sheets[name];
-      const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      return { name, data };
-    });
-    return { success: true, sheets };
-  } catch (error) {
-    console.error('read-excel-file error', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('save-excel-file', async (event, payload) => {
-  try {
-    if (!payload || !Array.isArray(payload.sheets)) throw new Error('Invalid payload');
-    const workbook = new ExcelJS.Workbook();
-    for (const sheet of payload.sheets) {
-      const ws = workbook.addWorksheet(sheet.name || 'Sheet');
-      // sheet.data expected as array of arrays
-      (sheet.data || []).forEach((row) => {
-        ws.addRow(row);
-      });
-    }
-    // Always write the saved workbook to the userData folder so the renderer
-    // reading logic (which prefers the userData copy) sees the updated file.
-    const userDataDir = app.getPath('userData');
-    if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
-    const targetPath = path.join(userDataDir, 'adatok.xlsx');
-    await workbook.xlsx.writeFile(targetPath);
-    return { success: true };
-  } catch (error) {
-    console.error('save-excel-file error', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// IPC handlers for prompt settings
-ipcMain.handle('getPromptSettings', async () => {
-  return {
-    greeting: settings.greeting || defaultSettings.greeting,
-    signature: settings.signature || defaultSettings.signature,
-    signatureText: settings.signatureText || defaultSettings.signatureText,
-    signatureImage: settings.signatureImage || defaultSettings.signatureImage
-  };
-});
-ipcMain.handle('savePromptSettings', async (event, { greeting, signature, signatureText, signatureImage }) => {
-  settings.greeting = greeting;
-  settings.signature = signature;
-  settings.signatureText = signatureText;
-  settings.signatureImage = signatureImage;
-  saveSettings(settings);
-  return true;
-});
-// Ipc handlers for web settings
-ipcMain.handle('getWebSettings', async () => {
-  return {
-    webUrls: settings.webUrls || defaultSettings.webUrls
-  };
-});
-ipcMain.handle('saveWebSettings', async (event, { webUrls }) => {
-  settings.webUrls = Array.isArray(webUrls) ? webUrls : [];
-  saveSettings(settings);
-  return true;
-});
-
-// Fast exact lookup for an Excel cell by address (e.g. "Ügyfelek!G763" or sheet/col/row)
-// Reusable helper: find an Excel cell across KB and embeddings files
-async function findExcelCell({ cellAddress, sheet, colLetter, row } = {}) {
-  try {
-    const normalize = (s) => {
-      if (!s) return '';
-      try {
-        return String(s).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
-      } catch (e) {
-        return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-      }
-    };
-
-    let targetSheet = sheet || null;
-    let targetCol = colLetter || null;
-    let targetRow = typeof row === 'number' ? Number(row) : (row ? Number(row) : null);
-    if (cellAddress && (!targetSheet || !targetCol || !targetRow)) {
-      const m = String(cellAddress).trim().match(/^([^!\t\n\r]+)[!\s]+([A-Za-z]+)\s*-?\s*(\d+)$/);
-      if (m) {
-        targetSheet = m[1].trim();
-        targetCol = m[2].trim();
-        targetRow = Number(m[3]);
-      }
-    }
-
-    const normalizedSheet = normalize(targetSheet || '');
-    const normalizedCol = targetCol ? String(targetCol).toUpperCase().replace(/\s+/g, '') : null;
-
-    const kbFile = path.join(app.getPath('userData'), 'embeddings_kb.json');
-    let kbExisting = [];
-    try {
-      if (fs.existsSync(kbFile)) kbExisting = JSON.parse(fs.readFileSync(kbFile, 'utf8') || '[]');
-    } catch (e) {
-      kbExisting = [];
-    }
-
-    const matches = kbExisting.filter(ent => {
-      try {
-        if (!ent) return false;
-        if (normalizedSheet && normalize(ent.subject || '') !== normalizedSheet) return false;
-        if (normalizedCol && String(ent.colLetter || '').toUpperCase() !== normalizedCol) return false;
-        if (targetRow && Number(ent.row) !== Number(targetRow)) return false;
-        return true;
-      } catch (e) { return false; }
-    });
-
-    if (matches.length) {
-      matches.sort((a, b) => (Number(a.chunkIndex) || 0) - (Number(b.chunkIndex) || 0));
-      const full = matches.map(m => String(m.text || m.textSnippet || '')).join('');
-      return { success: true, source: 'kb', matches, text: full };
-    }
-
-    const embFile = path.join(app.getPath('userData'), 'embeddings.json');
-    try {
-      if (fs.existsSync(embFile)) {
-        const raw = JSON.parse(fs.readFileSync(embFile, 'utf8') || '[]');
-        const key = (cellAddress || `${targetSheet || ''}!${targetCol || ''}${targetRow || ''}`).trim();
-        const fallback = raw.filter(r => {
-          try {
-            const src = String(r.source || r.title || '').toLowerCase();
-            return key && src && src.toLowerCase().includes(key.toLowerCase());
-          } catch (e) { return false; }
-        });
-        if (fallback.length) {
-          fallback.sort((a, b) => (a.chunkIndex || 0) - (b.chunkIndex || 0));
-          const full = fallback.map(f => String(f.textSnippet || f.text || f.content || '')).join('');
-          return { success: true, source: 'embeddings', matches: fallback, text: full };
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    return { success: false, error: 'No matching cell found' };
-  } catch (err) {
-    return { success: false, error: err?.message || String(err) };
-  }
 }
 
-ipcMain.handle('lookup-excel-cell', async (event, params = {}) => {
-  return await findExcelCell(params);
-});
+// =============================================================================
+// AI FUNCTIONS
+// =============================================================================
 
-// Fetch data from the web URL
-
-// Refactor promptBase and generateReply
-// Added {embeddingsContext} placeholder so we can inject nearest-file snippets from the imported embeddings
-let promptBase = `Egy ügyféltől a következő email érkezett:\n\n{greeting}\n\n"{email.body}"\n\n{imageDescriptions}\n\n{excelImageDescriptions}\n\nA következő adatokat használd fel a válaszadáshoz:\n{excelData}\n\n{signature}\n\n{webUrls}\n{embeddingsContext}\nEzekről a htmlek-ről is gyűjtsd ki a szükséges információkat a válaszadáshoz: {webUrls}, gyűjts ki a szükséges információkat, linkeket, telefonszámokat, email címeket és így tovább és ezeket küldd vissza.\n\n`;
-
-// Safe embedding helper: try to embed the full text, but if the call fails
-// (commonly due to input size), split the text into smaller subchunks and
-// average their embeddings. Uses the global `openai` instance.
 async function safeCreateEmbedding(model, text) {
   if (!text) return null;
   const SLEEP = (ms) => new Promise(r => setTimeout(r, ms));
@@ -1534,10 +441,9 @@ async function safeCreateEmbedding(model, text) {
     const resp = await openai.embeddings.create({ model, input: String(text) });
     return resp?.data?.[0]?.embedding || null;
   } catch (err) {
-    console.error('[safeCreateEmbedding] full text embed failed, will try sub-chunks:', err && err.message ? err.message : err);
-    // split into safe sub-chunks and embed each, then average
+    console.error('[safeCreateEmbedding] full text embed failed:', err?.message || err);
     try {
-      const SUB_CHUNK = 2000; // chars per subchunk
+      const SUB_CHUNK = 2000;
       const parts = [];
       for (let i = 0; i < String(text).length; i += SUB_CHUNK) parts.push(String(text).slice(i, i + SUB_CHUNK));
       if (!parts.length) return null;
@@ -1549,15 +455,14 @@ async function safeCreateEmbedding(model, text) {
           const data = (r && r.data) ? r.data.map(d => d.embedding) : [];
           for (const v of data) embeddings.push(v);
         } catch (be) {
-          console.error('[safeCreateEmbedding] sub-batch embed failed:', be && be.message ? be.message : be);
-          // try each part individually if batch fails
+          console.error('[safeCreateEmbedding] sub-batch embed failed:', be?.message || be);
           for (const part of batch) {
             try {
               const rr = await openai.embeddings.create({ model, input: part });
               const dv = rr?.data?.[0]?.embedding;
               if (dv) embeddings.push(dv);
             } catch (e2) {
-              console.error('[safeCreateEmbedding] single subchunk embed failed:', e2 && e2.message ? e2.message : e2);
+              console.error('[safeCreateEmbedding] single subchunk embed failed:', e2?.message || e2);
             }
             await SLEEP(100);
           }
@@ -1565,7 +470,6 @@ async function safeCreateEmbedding(model, text) {
         await SLEEP(100);
       }
       if (!embeddings.length) return null;
-      // average embeddings
       const len = embeddings.length;
       const out = new Array(embeddings[0].length).fill(0);
       for (const vec of embeddings) {
@@ -1574,1403 +478,12 @@ async function safeCreateEmbedding(model, text) {
       for (let k = 0; k < out.length; k++) out[k] = out[k] / len;
       return out;
     } catch (ex) {
-      console.error('[safeCreateEmbedding] failed to create embedding via subchunks:', ex && ex.message ? ex.message : ex);
+      console.error('[safeCreateEmbedding] failed via subchunks:', ex?.message || ex);
       return null;
     }
   }
 }
 
-async function generateReply(email) {
-  try {
-    // Ensure we have full email body: always try to fetch the full email by id when available.
-    // This guarantees that if the renderer passed only a snippet or cached record, we still
-    // retrieve the complete body (and any OCR/aiImageResponses) before generating a reply.
-    try {
-      if (email && email.id) {
-        try {
-          const full = await getEmailByIdBasedOnProvider(email.id);
-          if (full) {
-            if (full.body) email.body = full.body;
-            if (full.aiImageResponses) email.aiImageResponses = full.aiImageResponses;
-            // prefer richer fields if available
-            if (full.subject) email.subject = full.subject;
-            if (full.from) email.from = full.from;
-          }
-        } catch (e) {
-          console.warn('[generateReply] could not fetch full email by id, proceeding with provided email', e);
-        }
-      }
-    } catch (e) {
-      console.warn('[generateReply] pre-fetch full email guard failed', e);
-    }
-
-    try {
-      // Determine current user email: prefer activationEmail (set on licence activation),
-      // then authState stored email, then smtpHandler config email as fallback.
-      let userEmail = null;
-      try {
-        if (typeof activationEmail !== 'undefined' && activationEmail) {
-          userEmail = activationEmail;
-        } else if (authState && authState.credentials && authState.credentials.email) {
-          userEmail = authState.credentials.email;
-        } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
-          userEmail = smtpHandler.config.email;
-        }
-      } catch (e) {
-        // In the unlikely event activationEmail is not accessible, fallback silently
-        if (authState && authState.credentials && authState.credentials.email) {
-          userEmail = authState.credentials.email;
-        } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
-          userEmail = smtpHandler.config.email;
-        }
-      }
-      if (userEmail) {
-        try {
-          const connection = await createDbConnectionWithFallback();
-          // Ensure we don't go below zero
-          await connection.execute(
-            'UPDATE user SET remainingGenerations = GREATEST(0, remainingGenerations - 1) WHERE email = ?',
-            [userEmail]
-          );
-          await connection.end();
-          console.log('[generateReply] Decremented remainingGenerations for', userEmail);
-        } catch (dbErr) {
-          console.error('[generateReply] DB update error:', dbErr);
-        }
-      } else {
-        console.log('[generateReply] No authenticated user email found; skipping remainingGenerations decrement.');
-      }
-    } catch (err) {
-      console.error('[generateReply] Error while attempting to decrement remainingGenerations:', err);
-    }
-    let htmlContents = [];
-
-    if (settings.webUrls && Array.isArray(settings.webUrls)) {
-      for (const url of settings.webUrls) {
-        try {
-          const response = await fetch(url);
-          if (response.ok) {
-            const html = await response.text();
-            htmlContents.push(html);
-          } else {
-            console.error(`Failed to fetch web URL (${url}): ${response.statusText}`);
-          }
-        } catch (error) {
-          console.error(`Error fetching web URL (${url}):`, error);
-        }
-      }
-    }
-
-    const combinedHtml = htmlContents.join('\n\n');
-
-    // Excel adatok és képek beolvasása
-    const { allData: excelData, allImages: excelImages } = await readExcelDataWithImages();
-    // Excel adatok formázása
-    const formattedExcelData = Object.entries(excelData)
-      .map(([sheetName, rows]) => {
-        const rowsText = rows.map((row, index) => {
-          if (typeof row === 'object' && !Array.isArray(row)) {
-            return `   ${index + 1}. ${Object.entries(row).map(([key, value]) => `${key}: ${value}`).join(', ')}`;
-          } else if (Array.isArray(row)) {
-            return `   ${index + 1}. ${row.join(', ')}`;
-          } else {
-            return `   ${index + 1}. ${row}`;
-          }
-        }).join('\n');
-        return `Munkalap: ${sheetName}\n${rowsText}`;
-      })
-      .join('\n\n');
-
-    // Excel képek leírása
-    let excelImageDescriptions = '';
-    if (excelImages && excelImages.length > 0) {
-      const aiDescs = await describeImagesWithAI(excelImages);
-      excelImageDescriptions = '\nAz Excelből származó képek AI által generált leírásai:';
-      excelImageDescriptions += aiDescs.map((desc, idx) => `\n${idx + 1}. ${desc}`).join('');
-      excelImageDescriptions += '\n';
-    }
-
-    // Use greeting and signature from settings
-    const greeting = settings.greeting || defaultSettings.greeting;
-    const signature = settings.signature || defaultSettings.signature;
-
-    // Képleírások összegyűjtése (emailből)
-    let imageDescriptions = '';
-    if (email.aiImageResponses && email.aiImageResponses.length > 0) {
-      imageDescriptions = '\nA levélhez csatolt képek AI által generált leírásai:';
-      imageDescriptions += email.aiImageResponses.map((resp, idx) => {
-        let desc = '';
-        if (resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) {
-          desc = resp.choices[0].message.content;
-        } else {
-          desc = JSON.stringify(resp);
-        }
-        return `\n${idx + 1}. ${desc}`;
-      }).join('');
-      imageDescriptions += '\n';
-    }
-
-    // Safety: trim very large inputs to avoid exceeding model context limits.
-    // We use character-based truncation as a cheap approximation (1 token ~ ~4 chars).
-    function safeTrim(text, maxChars) {
-      if (!text) return '';
-      if (typeof text !== 'string') text = String(text);
-      if (text.length <= maxChars) return text;
-      return text.slice(0, maxChars) + '\n\n[...további tartalom levágva...]';
-    }
-
-  // Increased safety limits to reduce accidental truncation of large emails/tables.
-  // WARNING: raising these values may increase token usage and cost when the prompt is sent
-  // to the model. Consider enabling the file-based KB / summary pipeline if cost is a concern.
-  const SAFE_HTML_MAX_CHARS = 100000; // allow much larger HTML bodies (~25k tokens approximation)
-  const SAFE_EXCEL_MAX_CHARS = 40000;
-    const SAFE_IMAGE_DESC_MAX_CHARS = 3000;
-
-    const safeCombinedHtml = safeTrim(combinedHtml || '', SAFE_HTML_MAX_CHARS);
-    const safeFormattedExcelData = safeTrim(formattedExcelData || '', SAFE_EXCEL_MAX_CHARS);
-    const safeImageDescriptions = safeTrim(imageDescriptions || '', SAFE_IMAGE_DESC_MAX_CHARS);
-    const safeExcelImageDescriptions = safeTrim(excelImageDescriptions || '', SAFE_IMAGE_DESC_MAX_CHARS);
-
-    // Helper: extract probable license/identifier codes from text (simple heuristic)
-    function extractCodesFromText(text) {
-      if (!text) return [];
-      try {
-        // Look for alphanumeric sequences of length 6-20 (common licence keys), allow hyphens
-        const re = /\b[A-Z0-9][-A-Z0-9]{4,19}\b/gi;
-        const matches = (String(text).match(re) || []).map(m => m.replace(/[^A-Z0-9-]/gi, '').trim()).filter(Boolean);
-        return Array.from(new Set(matches));
-      } catch (e) {
-        return [];
-      }
-    }
-
-    // Build embeddings-based context: combine (A) existing embeddings.json knowledge base
-    // and (B) the most similar snippets from the user's recent emails (last 50 loaded from mailbox).
-    // This block computes the embedding for the incoming email once and reuses it.
-    let embeddingsContext = '';
-    // Quick-path: detect explicit Excel cell queries in the incoming email (e.g. "Ügyfelek!G763" or "G 763 Ügyfelek").
-    try {
-      const searchText = `${email.subject || ''}\n${email.body || ''}`;
-      let detected = null;
-      // direct pattern sheet!ColRow
-      const direct = String(searchText).match(/([^!\n\r]+)[!\s]+([A-Za-z]+)\s*-?\s*(\d{1,6})/);
-      if (direct) {
-        detected = { sheet: direct[1].trim(), colLetter: direct[2].trim().toUpperCase(), row: Number(direct[3]) };
-      } else {
-        // try to find patterns that reference known sheet names from excelData
-        try {
-          const sheetNames = Object.keys(excelData || {});
-          for (const sname of sheetNames) {
-            if (!sname) continue;
-            const esc = sname.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
-            // pattern: <sheet> <col><row> or <sheet> <col> <row>
-            const p1 = new RegExp(esc + "[!\s]+([A-Za-z]+)\s*-?\s*(\\d{1,6})", 'i');
-            const m1 = String(searchText).match(p1);
-            if (m1) { detected = { sheet: sname, colLetter: m1[1].trim().toUpperCase(), row: Number(m1[2]) }; break; }
-            // pattern: <col><row> <sheet>
-            const p2 = new RegExp('([A-Za-z]+)\s*-?\s*(\\d{1,6})\\s+' + esc, 'i');
-            const m2 = String(searchText).match(p2);
-            if (m2) { detected = { sheet: sname, colLetter: m2[1].trim().toUpperCase(), row: Number(m2[2]) }; break; }
-          }
-        } catch (e) {
-          detected = null;
-        }
-      }
-
-      if (detected) {
-        try {
-          const lookupRes = await findExcelCell({ sheet: detected.sheet, colLetter: detected.colLetter, row: detected.row });
-          if (lookupRes && lookupRes.success && lookupRes.text) {
-            // inject the exact cell lookup into embeddingsContext with high priority
-            const short = String(lookupRes.text).slice(0, 2000);
-            const cellAddr = `${detected.sheet || ''}!${detected.colLetter || ''}${detected.row || ''}`;
-            embeddingsContext += `EXACT_CELL_LOOKUP: ${cellAddr} => ${short}\n\n`;
-          }
-        } catch (e) {
-          // ignore lookup failures here
-        }
-      }
-    } catch (e) {
-      // non-fatal
-    }
-    try {
-      const modelForEmb = 'text-embedding-3-small';
-
-      // compute embedding for the incoming email (used as query)
-      let emailEmb = null;
-      try {
-        emailEmb = await safeCreateEmbedding(modelForEmb, String(email.body || email.subject || ''));
-      } catch (e) {
-        console.error('[generateReply] failed to compute embedding for incoming email', e);
-        emailEmb = null;
-      }
-
-      const cosine = (a, b) => {
-        if (!a || !b || a.length !== b.length) return 0;
-        let dot = 0, na = 0, nb = 0;
-        for (let i = 0; i < a.length; i++) {
-          dot += (a[i] || 0) * (b[i] || 0);
-          na += (a[i] || 0) * (a[i] || 0);
-          nb += (b[i] || 0) * (b[i] || 0);
-        }
-        na = Math.sqrt(na); nb = Math.sqrt(nb);
-        return na && nb ? dot / (na * nb) : 0;
-      };
-
-      // (A) Lookup in stored embeddings (embeddings.json) if present
-      try {
-        const embeddingsFile = path.join(app.getPath('userData'), 'embeddings.json');
-        if (fs.existsSync(embeddingsFile)) {
-          const raw = fs.readFileSync(embeddingsFile, 'utf8');
-          const stored = JSON.parse(raw || '[]');
-          if (Array.isArray(stored) && stored.length > 0 && emailEmb) {
-            try {
-              // Score all stored items against the incoming email
-              const scored = stored.map(s => ({ score: cosine(emailEmb, s.embedding || []), item: s }));
-              scored.sort((a, b) => b.score - a.score);
-              // Build a more informative snippet for each top item: include title/url/source/filePath and a short snippet
-              const topItems = scored.slice(0, 5).filter(s => s.item);
-              const fileSnippets = topItems.map(s => {
-                const it = s.item || {};
-                // If the stored item looks like an email, prefer From/Subject/Date/Body formatting
-                if (it.subject || it.from || it.body) {
-                  const from = it.from || it.author || '';
-                  const subject = it.subject || '';
-                  const date = it.date || it.createdAt || '';
-                  const body = safeTrim(String(it.body || it.text || it.content || it.textSnippet || '').replace(/\s+/g, ' '), 1000);
-                  const src = it.source || it.url || it.filePath ? ` | Source: ${it.source || it.url || it.filePath}` : '';
-                  return `(${s.score.toFixed(3)}) From: ${from} | Subject: ${subject} | Date: ${date}${src}\n${body}`;
-                }
-                // Otherwise treat as generic document/snippet
-                const title = it.title || it.name || it.source || it.url || it.filePath || 'Név nélküli forrás';
-                const snippet = it.textSnippet || it.content || it.text || it.summary || '';
-                const short = safeTrim(String(snippet || '').replace(/\s+/g, ' '), 800);
-                const metaParts = [];
-                if (it.url) metaParts.push(`URL: ${it.url}`);
-                if (it.filePath) metaParts.push(`Fájl: ${it.filePath}`);
-                if (it.source) metaParts.push(`Forrás: ${it.source}`);
-                const meta = metaParts.length ? ` (${metaParts.join(' | ')})` : '';
-                return `(${s.score.toFixed(3)}) ${title}${meta}\n${short}`;
-              });
-              if (fileSnippets.length) embeddingsContext += 'Releváns dokumentumok a tudásbázisból:\n' + fileSnippets.join('\n\n') + '\n\n';
-            } catch (e) {
-              console.error('[generateReply] embedding lookup in embeddings.json failed', e);
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[generateReply] failed to read embeddings.json', e);
-      }
-
-      // (B) Use file-based KB: ensure mailbox emails are indexed and query local KB for relevant snippets
-      try {
-        // Fetch recent mailbox emails for embedding context (not only unread)
-        let mailboxEmails = [];
-        try {
-          if (authState.provider === 'smtp' && smtpHandler && typeof smtpHandler.getRecentEmails === 'function') {
-            mailboxEmails = await smtpHandler.getRecentEmails();
-          } else if (authState.provider === 'gmail') {
-            mailboxEmails = await getRecentEmails();
-          } else {
-            mailboxEmails = await getEmailsBasedOnProvider();
-          }
-        } catch (e) {
-          console.error('[generateReply] failed to fetch recent mailbox emails, falling back to provider unread list', e);
-          mailboxEmails = await getEmailsBasedOnProvider();
-        }
-
-        if (Array.isArray(mailboxEmails) && mailboxEmails.length > 0 && emailEmb) {
-          try {
-            // Add any new emails/chunks to the local KB (embeds only new chunks)
-            // Do this asynchronously in background to avoid blocking reply generation and unexpected cost during reply.
-            KB.addEmails(mailboxEmails)
-              .then(added => console.log('[generateReply] KB.addEmails result (async):', added))
-              .catch(err => console.error('[generateReply] KB.addEmails failed (async):', err));
-          } catch (e) {
-            console.error('[generateReply] KB.addEmails launch failed:', e);
-          }
-
-          try {
-            const kbMatches = await KB.queryByEmbedding(emailEmb, 200);
-            if (Array.isArray(kbMatches) && kbMatches.length) {
-              // Include full matching chunks (with metadata) so the reply can use
-              // all relevant chunk text. We include docId and chunkIndex to make
-              // reconstruction unambiguous. Note: this may increase prompt size;
-              // we cap the embeddingsContext later but increased the cap to
-              // reduce accidental truncation.
-              const snippets = kbMatches.map(s => {
-                const header = `(${s.score.toFixed(3)}) From: ${s.from} | Subject: ${s.subject} | doc:${s.docId} #chunk:${s.chunkIndex}`;
-                const body = String(s.text || '').trim();
-                return `${header}\n${body}`;
-              });
-              embeddingsContext += 'Releváns korábbi emailek a postaládából:\n' + snippets.join('\n\n') + '\n\n';
-              // If we found relevant chunks, also include other chunks from the same
-              // original documents so the model can see contiguous context. We load
-              // full KB and append additional chunks for each matched docId. Stop
-              // appending if we exceed the embeddingsContext cap to avoid blowing
-              // the model context.
-              try {
-                const included = new Set(kbMatches.map(k => k.id || `${k.docId}-${k.chunkIndex}`));
-                const allEntries = KB.getAllEntries();
-                const docIds = [...new Set(kbMatches.map(k => k.docId))];
-                let totalAddedChunks = 0;
-                console.log('[generateReply] KB matches summary:', { matches: kbMatches.length, uniqueDocs: docIds.length });
-                for (const docId of docIds) {
-                  const beforeIncluded = included.size;
-                  // Collect any KB-stored chunks for this docId
-                  let docChunks = allEntries.filter(e => e.docId === docId).sort((a, b) => (a.chunkIndex || 0) - (b.chunkIndex || 0));
-                  console.log('[generateReply] docChunks initial for', docId, 'count=', docChunks.length);
-                  // If KB doesn't have all chunks, try to reconstruct from the fetched mailbox emails
-                  // so we can include contiguous context. mailboxEmails is available in this scope.
-                  const match = kbMatches.find(k => k.docId === docId);
-                  const expectedTotal = match && match.totalChunks ? match.totalChunks : (docChunks.length || null);
-                  // Reconstruct chunks from mailboxEmails if mailboxEmails is available.
-                  // Aggressive mode: always attempt reconstruction from mailbox when available
-                  // to avoid missing context due to earlier truncation.
-                  if (Array.isArray(mailboxEmails) && mailboxEmails.length) {
-                    try {
-                      let orig = mailboxEmails.find(m => String(m.id) === String(docId) || String(m.messageId || '') === String(docId));
-                      // Fallback: if we couldn't find by id, try fuzzy match by subject/from
-                      if (!orig) {
-                        try {
-                          const sampleMatch = match || {};
-                          const wantedSub = String(sampleMatch.subject || '').trim().toLowerCase();
-                          const wantedFrom = String(sampleMatch.from || '').trim().toLowerCase();
-                          orig = mailboxEmails.find(m => {
-                            try {
-                              const ms = String(m.subject || '').trim().toLowerCase();
-                              const mf = String(m.from || '').trim().toLowerCase();
-                              if (wantedSub && ms && ms.includes(wantedSub)) return true;
-                              if (wantedFrom && mf && mf.includes(wantedFrom)) return true;
-                              return false;
-                            } catch (e) { return false; }
-                          });
-                        } catch (fm) {
-                          orig = null;
-                        }
-                      }
-
-                          if (orig && orig.body) {
-                            console.log('[generateReply] reconstruct orig found for docId', docId, 'subject=', orig.subject, 'from=', orig.from, 'bodyLen=', String(orig.body || '').length);
-                        // dynamic import of chunker to reconstruct chunks consistently
-                        const helperPath = path.join(process.cwd(), 'src', 'backend', 'embeddings-helper.js');
-                        const { pathToFileURL } = await import('url');
-                        const helperUrl = pathToFileURL(helperPath).href;
-                        const helper = await import(helperUrl);
-                        const chunkTextFn = helper.chunkText || helper.default?.chunkText || helper.chunkText;
-                        if (typeof chunkTextFn === 'function') {
-                          // Reconstruct using a chunk size aligned with KB/embeddings
-                          // defaults (32k chars ~ 8000 tokens) to ensure contiguous
-                          // context matches what was embedded earlier.
-                          const reconstructed = chunkTextFn(String(orig.body || ''), 32000, Math.floor(32000 * 0.08)) || [];
-                          // Merge reconstructed chunks with existing KB chunks, preferring KB when available
-                          const reconChunks = reconstructed.map((c, idx) => ({ id: `${docId}-${idx}`, docId, chunkIndex: idx, text: c.text || c, chunkStart: c.start || null, chunkEnd: c.end || null, totalChunks: reconstructed.length, from: orig.from || '', subject: orig.subject || '' }));
-                          // Only add reconChunks that are not already present in docChunks
-                          const existingIdx = new Set(docChunks.map(dc => Number(dc.chunkIndex)));
-                          for (const rc of reconChunks) {
-                            if (!existingIdx.has(Number(rc.chunkIndex))) docChunks.push(rc);
-                          }
-                          // re-sort after merge
-                          docChunks.sort((a, b) => (a.chunkIndex || 0) - (b.chunkIndex || 0));
-                          console.log('[generateReply] after merge docChunks count=', docChunks.length, 'reconChunks count=', reconChunks.length);
-                            // If reconstruction produced more chunks than KB has, prefer the
-                            // reconstructed version (aggressive mode) and dump it to logs for
-                            // diagnosis.
-                            try {
-                              if (reconChunks.length > (docChunks.length || 0)) {
-                                docChunks = reconChunks.slice();
-                                const dumpDir = path.join(process.cwd(), 'logs');
-                                if (!fs.existsSync(dumpDir)) fs.mkdirSync(dumpDir, { recursive: true });
-                                const dumpPath = path.join(dumpDir, `reconstructed-${docId}.txt`);
-                                const dumpContent = reconChunks.map(r => `--- chunk ${r.chunkIndex}\n${r.text || ''}\n`).join('\n');
-                                fs.writeFileSync(dumpPath, dumpContent, 'utf8');
-                                console.log('[generateReply] wrote reconstructed chunks to', dumpPath);
-                              }
-                            } catch (de) {
-                              console.error('[generateReply] failed to dump reconstructed chunks:', de);
-                            }
-                        }
-                      }
-                    } catch (re) {
-                      console.error('[generateReply] failed to reconstruct doc chunks from mailboxEmails:', re);
-                    }
-                  }
-
-                  // Instead of appending all doc chunks (which can cause early truncation at the same spot),
-                  // include a contiguous window around matched chunk indices. This guarantees the model sees
-                  // the surrounding context for the matched portions and reduces repeated truncation at the
-                  // same absolute position.
-                  const matchesForDoc = kbMatches.filter(k => k.docId === docId).map(k => Number(k.chunkIndex)).filter(n => !isNaN(n));
-                  if (matchesForDoc.length === 0) {
-                    // nothing matched for this docId (shouldn't happen), skip
-                  } else {
-                    const minMatch = Math.max(0, Math.min(...matchesForDoc));
-                    const maxMatch = Math.max(...matchesForDoc);
-                    // Window size: include more neighboring chunks on either side (adjustable)
-                    // Increased per request to give the model more contiguous context.
-                    // Raised to 25 to include a larger context window around matches.
-                    const window = 25;
-                    const startIdx = Math.max(0, minMatch - window);
-                    const endIdx = Math.min((docChunks.length ? docChunks[docChunks.length - 1].chunkIndex : maxMatch) || maxMatch, maxMatch + window);
-
-                    // Filter and include only the contiguous window of chunks
-                    const chunksToInclude = docChunks.filter(c => c && typeof c.chunkIndex === 'number' && c.chunkIndex >= startIdx && c.chunkIndex <= endIdx).sort((a, b) => a.chunkIndex - b.chunkIndex);
-                    for (const c of chunksToInclude) {
-                      if (!c || !c.id || included.has(c.id)) continue;
-                      const header = `From: ${c.from} | Subject: ${c.subject} | doc:${c.docId} chunk:${c.chunkIndex}/${c.totalChunks || '?'} ${c.chunkStart !== null && c.chunkEnd !== null ? `(chars ${c.chunkStart}-${c.chunkEnd})` : ''}`;
-                      const body = String(c.text || '').trim();
-                      embeddingsContext += header + '\n' + body + '\n\n';
-                      included.add(c.id);
-                      totalAddedChunks++;
-                      if (embeddingsContext.length > 200000) {
-                        embeddingsContext += '\n\n[...további bejegyzések levágva...]';
-                        break;
-                      }
-                    }
-
-                    // If present, also include Table-of-Contents chunks (common heading: "Tartalomjegyzék")
-                    try {
-                      const tocRegex = /tartalomjegyzék|tartalomjegyzek/i;
-                      const tocChunks = docChunks.filter(dc => dc && tocRegex.test(String(dc.text || '')));
-                      for (const tc of tocChunks) {
-                        if (embeddingsContext.length > 200000) break;
-                        if (!tc || !tc.id || included.has(tc.id)) continue;
-                        embeddingsContext += `From: ${tc.from} | Subject: ${tc.subject} | doc:${tc.docId} chunk:${tc.chunkIndex}/${tc.totalChunks || '?'} (TOC)\n${String(tc.text || '').trim()}\n\n`;
-                        included.add(tc.id);
-                        totalAddedChunks++;
-                      }
-                    } catch (tcerr) {
-                      console.error('[generateReply] TOC include error:', tcerr);
-                    }
-
-                    // Include chunks that include truncation markers like "(a forrás" or "levágva" and try to include their neighbors
-                    try {
-                      const truncRegex = /\(a forr[aá]s|levágva|levagva/i;
-                      const truncChunks = docChunks.filter(dc => dc && truncRegex.test(String(dc.text || '')));
-                      for (const t of truncChunks) {
-                        if (embeddingsContext.length > 200000) break;
-                        const idx = Number(t.chunkIndex);
-                        const neighborIdxs = [idx - 1, idx, idx + 1];
-                        for (const ni of neighborIdxs) {
-                          const nc = docChunks.find(d => Number(d.chunkIndex) === ni);
-                          if (!nc || !nc.id || included.has(nc.id)) continue;
-                          if (embeddingsContext.length > 200000) break;
-                          embeddingsContext += `From: ${nc.from} | Subject: ${nc.subject} | doc:${nc.docId} chunk:${nc.chunkIndex}/${nc.totalChunks || '?'} (context around truncation)\n${String(nc.text || '').trim()}\n\n`;
-                          included.add(nc.id);
-                          totalAddedChunks++;
-                        }
-                      }
-                    } catch (trerr) {
-                      console.error('[generateReply] truncation-include error:', trerr);
-                    }
-                  }
-                  const afterIncluded = included.size;
-                  const addedForDoc = afterIncluded - beforeIncluded;
-                  // Log how many chunks we added for this document and some source metadata
-                  const sample = kbMatches.find(k => k.docId === docId) || {};
-                  console.log('[generateReply] KB included chunks for doc:', { docId, addedForDoc, kbStoredChunks: docChunks.length, totalChunks: sample.totalChunks || docChunks.length || '?', from: sample.from || (docChunks[0] && docChunks[0].from) || 'unknown', subject: sample.subject || (docChunks[0] && docChunks[0].subject) || 'unknown' });
-                  if (embeddingsContext.length > 100000) break;
-                }
-                console.log('[generateReply] KB total chunks appended to embeddingsContext:', totalAddedChunks);
-              } catch (e) {
-                console.error('[generateReply] failed to append additional doc chunks:', e);
-              }
-            }
-          } catch (e) {
-            console.error('[generateReply] KB.queryByEmbedding failed:', e);
-          }
-        }
-      } catch (e) {
-        console.error('[generateReply] mailbox embedding (KB) step failed', e);
-      }
-
-      // truncate the final embeddingsContext so we don't blow model context
-      // Allow a larger embeddingsContext to reduce missing context; still cap to avoid hitting extreme limits
-      // Increase cap to reduce accidental truncation while still protecting
-      // model context. If you need absolute no-loss guarantees for very large
-      // mailboxes, consider retrieving originals on-demand instead of
-      // embedding everything into the prompt.
-      if (embeddingsContext && embeddingsContext.length > 200000) {
-        embeddingsContext = embeddingsContext.slice(0, 200000) + '\n\n[...további bejegyzések levágva...]';
-      }
-    } catch (e) {
-      console.error('[generateReply] failed to build embeddings context', e);
-    }
-
-    // Check for explicit license/identifier codes in the email body and image descriptions
-    // NOTE: we log detected codes for auditing, but DO NOT inject them verbatim into the model prompt
-    try {
-      const codes = new Set();
-      const bodyCodes = extractCodesFromText(email.body || '');
-      bodyCodes.forEach(c => codes.add(c));
-      const imgDescText = (email.aiImageResponses && Array.isArray(email.aiImageResponses))
-        ? email.aiImageResponses.map(r => JSON.stringify(r)).join('\n')
-        : imageDescriptions || '';
-      const imgCodes = extractCodesFromText(imgDescText);
-      imgCodes.forEach(c => codes.add(c));
-      if (codes.size > 0) {
-        const list = Array.from(codes).join(', ');
-        // Keep as a log only — DO NOT include verbatim codes in the prompt to avoid leakage/over-sharing
-        console.log('[generateReply] Detected codes in email (logged only, not added to prompt):', list);
-        // Also write to KB / app log for auditing
-        try { logToFile(`[detected-codes] ${list}`); } catch (e) { /* ignore logging errors */ }
-      }
-    } catch (e) {
-      console.error('[generateReply] error while extracting codes from email', e);
-    }
-
-    // Debug logging to help diagnose large inputs
-    try {
-      console.log('[generateReply] sizes:', {
-        combinedHtmlLength: (combinedHtml || '').length,
-        combinedHtmlTrimmed: safeCombinedHtml.length,
-        excelDataLength: (formattedExcelData || '').length,
-        excelDataTrimmed: safeFormattedExcelData.length,
-        imageDescLength: (imageDescriptions || '').length,
-        imageDescTrimmed: safeImageDescriptions.length
-      });
-    } catch (e) {
-      // ignore logging errors
-    }
-
-    const finalPrompt = promptBase
-      .replace('{greeting}', greeting)
-      .replace('{signature}', signature)
-      .replace('{email.body}', email.body)
-      .replace('{excelData}', safeFormattedExcelData)
-      .replace('{imageDescriptions}', safeImageDescriptions)
-      .replace('{excelImageDescriptions}', safeExcelImageDescriptions)
-      .replace('{webUrls}', safeCombinedHtml || 'N/A')
-      // NOTE: do NOT prepend detected codes verbatim to embeddingsContext. Keep embeddingsContext only.
-      .replace('{embeddingsContext}', (embeddingsContext || ''));
-    // Try local AI server first, fall back to OpenAI if unavailable
-    try {
-      let messageContent = null;
-      // System prompt used for both local and OpenAI calls
-      const systemPrompt = "Te egy segítőkész asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek. Az Excel adatokat és a megadott html-ről szerzett információkat használd fel a válaszadáshoz, ha releváns információt találsz bennük. Az adatok különböző munkalapokról származnak, mindegyiket vedd figyelembe a válaszadásnál. Elsődlegesen a levél tartalam alapjűn válaszolj. Ha nem találsz elegendő információt a válaszadáshoz, akkor használd az excelt, htmlt.";
-
-      // 1) Try local AI (OpenAI-compatible endpoint)
-      try {
-        console.log('[generateReply] Trying Ollama local server (llama3.1:8b)...');
-       
-        const controller = new AbortController();
-        const timeoutMs = 6000; 
-        const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-
-        const promptForOllama = `${systemPrompt}\n\n${finalPrompt}`;
-
-        const localResp = await fetch('http://192.168.88.12:11434/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'llama3.1:8b',
-            prompt: promptForOllama,
-            temperature: 1,
-            stream: false
-          }),
-          signal: controller.signal
-        });
-        clearTimeout(timeout);
-
-        if (localResp && localResp.ok) {
-          const localData = await localResp.json();
-          // Robust extraction: handle several possible Ollama-like shapes
-          const extractLocalText = (d) => {
-            try {
-              // Ollama /api/generate with stream:false returns { response: "..." }
-              if (typeof d?.response === 'string') return d.response;
-              // Ollama new: { results: [ { content: [ { type:'output_text', text: '...' } ] } ] }
-              if (d?.results && Array.isArray(d.results)) {
-                for (const r of d.results) {
-                  if (r?.content && Array.isArray(r.content)) {
-                    for (const c of r.content) {
-                      if (typeof c.text === 'string') return c.text;
-                      if (typeof c === 'string') return c;
-                    }
-                  }
-                  if (typeof r === 'string') return r;
-                }
-              }
-              // Older: { result: [ { content: [ { type:'output_text', text } ] } ] }
-              if (d?.result && Array.isArray(d.result)) {
-                for (const r of d.result) {
-                  if (r?.content && Array.isArray(r.content)) {
-                    for (const c of r.content) {
-                      if (typeof c.text === 'string') return c.text;
-                    }
-                  }
-                }
-              }
-              // Fallback common shapes
-              if (d?.output) return d.output;
-              if (d?.text) return d.text;
-              if (d?.choices && Array.isArray(d.choices)) {
-                const ch = d.choices[0];
-                if (ch?.message?.content) return ch.message.content;
-                if (ch?.text) return ch.text;
-              }
-            } catch (e) {
-              return null;
-            }
-            return null;
-          };
-
-          messageContent = extractLocalText(localData);
-          if (messageContent) {
-            console.log('[generateReply] Local Ollama responded.');
-          } else {
-            console.warn('[generateReply] Local Ollama responded but no text extracted, raw:', Object.keys(localData || {}).length ? JSON.stringify(localData).slice(0,1000) : String(localData));
-          }
-        } else {
-          const txt = await localResp.text().catch(() => '<no-body>');
-          console.warn('[generateReply] Local Ollama returned non-OK:', localResp && localResp.status, txt.slice(0,1000));
-        }
-      } catch (localErr) {
-        if (localErr && localErr.name === 'AbortError') {
-          console.warn('[generateReply] Local Ollama request aborted due to timeout.');
-        } else {
-          console.warn('[generateReply] Local Ollama unreachable or error:', localErr && localErr.message ? localErr.message : localErr);
-        }
-      }
-
-      // 2) Fallback to OpenAI if local did not produce a message
-      if (!messageContent) {
-        try {
-          console.log('[generateReply] Sending prompt to OpenAI, prompt length (chars):', finalPrompt.length);
-          const completion = await openai.chat.completions.create({
-            model: 'gpt-5-mini',
-            messages: [ { role: 'system', content: systemPrompt }, { role: 'user', content: finalPrompt } ],
-            temperature: 1
-          });
-          try { console.log('[generateReply] OpenAI raw response keys:', Object.keys(completion || {})); } catch (e) {}
-          try { logToFile('[generateReply] OpenAI response: ' + JSON.stringify({ choicesCount: completion?.choices?.length ?? 0 })); } catch (e) {}
-          messageContent = completion?.choices?.[0]?.message?.content;
-        } catch (err) {
-          console.error('[generateReply] OpenAI completion error:', err);
-        }
-      }
-
-      if (!messageContent || String(messageContent).trim().length === 0) {
-        console.warn('[generateReply] AI returned empty content — returning fallback message');
-        return 'Sajnálom, nem sikerült érdemi választ generálni a megadott adatok alapján.';
-      }
-      return messageContent;
-    } catch (err) {
-      console.error('[generateReply] Completion error (local+OpenAI):', err);
-      return 'Sajnálom, nem sikerült érdemi választ generálni a megadott adatok alapján.';
-    }
-  } catch (error) {
-    console.error('Hiba a válasz generálásakor:', error);
-    throw error;
-  }
-}
-
-async function sendReply({ to, subject, body, emailId, originalEmail }) {
-  try {
-    console.log(`[sendReply] Küldés megkezdése: to=${to}, subject=${subject}, emailId=${emailId}`);
-
-    let sendResult;
-    const signatureText = settings.signatureText || 'AiMail';
-    const signatureImage = settings.signatureImage || '';
-    const watermarkImagePath = path.join(__dirname, 'src', 'images', 'watermark.png');
-    const watermarkLink = 'https://okosmail.hu';
-    let imageCid = 'signature';
-    let watermarkCid = 'watermark';
-    let htmlBody = body.replace(/\n/g, '<br>');
-
-    
-
-    // Add signature text
-    if (signatureText) htmlBody += `<br><br>${signatureText}`;
-
-    // Add signature image
-    if (signatureImage && fs.existsSync(signatureImage)) {
-      htmlBody += `<br><img src=\"cid:${imageCid}\" style=\"width:25%\">`;
-    }
-
-    // Add watermark image
-    if (fs.existsSync(watermarkImagePath)) {
-      htmlBody += `<br><img src=\"cid:${watermarkCid}\" style=\"width:25%\">`;
-    }
-
-    // Add original email details
-    if (originalEmail) {
-      htmlBody += `<br><br>--- Eredeti üzenet ---`;
-      htmlBody += `<br><br><strong>Feladó:</strong> ${originalEmail.to}`;
-      htmlBody += `<br><strong>Tárgy:</strong> ${originalEmail.subject}`;
-      htmlBody += `<br><br><strong>Üzenet:</strong><br>${originalEmail.body.replace(/\n/g, '<br>')}`;
-    }
-
-    // --- Attachments: list all files in attachments folder ---
-    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
-    let attachmentFiles = [];
-    if (fs.existsSync(attachmentsDir)) {
-      attachmentFiles = fs.readdirSync(attachmentsDir).filter(f => fs.statSync(path.join(attachmentsDir, f)).isFile());
-    }
-    const nodemailerAttachments = attachmentFiles.map(filename => ({
-      filename,
-      path: path.join(attachmentsDir, filename)
-    }));
-
-    // Add inline images to attachments
-    if (signatureImage && fs.existsSync(signatureImage)) {
-      nodemailerAttachments.push({
-        filename: path.basename(signatureImage),
-        path: signatureImage,
-        cid: imageCid
-      });
-    }
-    if (fs.existsSync(watermarkImagePath)) {
-      nodemailerAttachments.push({
-        filename: path.basename(watermarkImagePath),
-        path: watermarkImagePath,
-        cid: watermarkCid
-      });
-    }
-
-    // --- Gmail ---
-    let boundary = '----=_Part_' + Math.random().toString(36).slice(2);
-    let mimeMsg = '';
-    let encodedSubject = `=?UTF-8?B?${Buffer.from(subject || 'Válasz', 'utf-8').toString('base64')}?=`;
-    mimeMsg += `To: ${formatAddress(to)}\r\n`;
-    mimeMsg += `Subject: ${encodedSubject}\r\n`;
-    mimeMsg += `MIME-Version: 1.0\r\n`;
-    mimeMsg += `Content-Type: multipart/related; boundary=\"${boundary}\"\r\n`;
-
-    // --- HTML part ---
-    mimeMsg += `\r\n--${boundary}\r\n`;
-    mimeMsg += `Content-Type: text/html; charset=\"UTF-8\"\r\n`;
-    mimeMsg += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
-    mimeMsg += `<html><body>${htmlBody}</body></html>\r\n`;
-
-    // Attachments (as regular attachments)
-    for (const attachment of nodemailerAttachments) {
-      const fileData = fs.readFileSync(attachment.path);
-      const mimeType = attachment.cid ? 'image/png' : 'application/octet-stream';
-      mimeMsg += `\r\n--${boundary}\r\n`;
-      mimeMsg += `Content-Type: ${mimeType}\r\n`;
-      mimeMsg += `Content-Transfer-Encoding: base64\r\n`;
-      mimeMsg += `Content-Disposition: ${attachment.cid ? 'inline' : 'attachment'}; filename=\"${attachment.filename}\"\r\n`;
-      if (attachment.cid) mimeMsg += `Content-ID: <${attachment.cid}>\r\n`;
-      mimeMsg += `\r\n${fileData.toString('base64').replace(/(.{76})/g, '$1\r\n')}\r\n`;
-    }
-
-    mimeMsg += `--${boundary}--`;
-
-    const encodedMessage = Buffer.from(mimeMsg)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-    
-    if (authState.provider === 'smtp') {
-
-      await smtpHandler.connect();
-
-      const mailOptions = {
-        to,
-        subject,
-        body: htmlBody,
-        html: htmlBody,
-        attachments: nodemailerAttachments,
-      };
-
-      const result = await smtpHandler.sendEmail(mailOptions);
-      if (result.success) {
-        sendResult = { success: true };
-        console.log(`[sendReply] SMTP küldés sikeres.`);
-      } else {
-        throw new Error(result.error || 'SMTP küldési hiba.');
-      }
-    } else if (authState.provider === 'gmail') {
-      const auth = await authorize();
-      const gmail = google.gmail({ version: 'v1', auth });
-      await gmail.users.messages.send({
-        userId: 'me',
-        requestBody: {
-          raw: encodedMessage,
-        },
-      });
-      sendResult = { success: true };
-      console.log(`[sendReply] Gmail küldés sikeres.`);
-    }
-    // --- LOG SENT EMAIL ---
-    appendSentEmailLog({
-      id: emailId || null,
-      to,
-      subject,
-      date: new Date().toISOString(),
-      body: body,
-      signatureText: signatureText,
-      signatureImage: signatureImage,
-    });
-    return sendResult;
-  } catch (error) {
-    console.error(`[sendReply] Hiba az email küldése során: ${error.message}`);
-    throw error;
-  }
-}
-
-ipcMain.on('open-external', (event, url) => {
-  shell.openExternal(url);
-});
-
-ipcMain.handle('get-unread-emails', async () => {
-  try {
-    // Return cached emails if available so renderer can read quickly
-    const cached = readCachedEmails();
-    if (cached && Array.isArray(cached) && cached.length > 0) {
-      console.log('Returning cached unread emails:', cached.length);
-      return cached;
-    }
-    // Fallback: fetch live based on provider and cache result
-    if (authState.provider === 'gmail' || authState.provider === 'smtp') {
-      console.log('No cache found, fetching emails live for provider:', authState.provider);
-      const emails = await getEmailsBasedOnProvider();
-      // Apply same filtering as monitoring loop to be consistent
-      // (we rely on startEmailMonitoring normally to populate cache)
-      saveCachedEmails(emails);
-      return emails;
-    }
-  } catch (error) {
-    console.error('Hiba az emailek lekérésekor:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('exit-app', () => {
-  app.quit();
-});
-
-ipcMain.handle('restart-app', () => {
-  app.relaunch();
-  app.exit(0);
-});
-
-ipcMain.handle('get-email-by-id', async (event, id) => {
-  try {
-    return await getEmailByIdBasedOnProvider(id);
-  } catch (error) {
-    console.error('Hiba az email lekérésekor:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('get-user-email', async () => {
-  try {
-    if (authState.provider === 'smtp' && smtpHandler) {
-      return smtpHandler.config.email;
-    } else if (authState.provider === 'gmail') {
-      const auth = await authorize();
-      const gmail = google.gmail({ version: 'v1', auth });
-      const profile = await gmail.users.getProfile({ userId: 'me' });
-      return profile.data.emailAddress;
-    }
-    throw new Error('No valid email provider configured');
-  } catch (error) {
-    console.error('Hiba az email cím lekérésekor:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('generate-reply', async (event, email) => {
-  console.log('[ipc] generate-reply invoked, email id:', email && email.id ? email.id : '(no id)');
-  const TIMEOUT_MS = 60 * 1000; // 60s
-  try {
-    const reply = await Promise.race([
-      generateReply(email),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('generate-reply timeout')), TIMEOUT_MS))
-    ]);
-    console.log('[ipc] generate-reply completed for', email && email.id ? email.id : '(no id)');
-    return {
-      subject: `${email && email.subject ? email.subject : ''}`,
-      body: reply
-    };
-  } catch (error) {
-    console.error('Hiba a válasz generálásakor:', error);
-    return {
-      subject: email && email.subject ? email.subject : '',
-      body: 'Sajnálom, nem sikerült választ generálni.'
-    };
-  }
-});
-
-ipcMain.handle('send-reply', async (event, { to, subject, body, emailId }) => {
-  const result = await sendReply({ to, subject, body, emailId });
-  // Ha sikeres volt a küldés és van emailId, akkor jelöljük olvasottnak
-  if (result && result.success && emailId) {
-    try {
-      if (authState.provider === 'smtp' && smtpHandler) {
-        await smtpHandler.markAsRead(emailId);
-      } else if (authState.provider === 'gmail') {
-        const auth = await authorize();
-        const gmail = google.gmail({ version: 'v1', auth });
-        await gmail.users.messages.modify({
-          userId: 'me',
-          id: emailId,
-          requestBody: {
-            removeLabelIds: ['UNREAD']
-          }
-        });
-      }
-      // Frissítsük a repliedEmailIds listát is!
-      if (!Array.isArray(repliedEmailIds)) repliedEmailIds = [];
-      if (!repliedEmailIds.includes(emailId)) {
-        repliedEmailIds.push(emailId);
-        saveRepliedEmails(repliedEmailIds);
-      }
-      // Remove from cache so renderer no longer shows it
-      try {
-        removeEmailFromCache(emailId);
-      } catch (err) {
-        console.error('Failed to remove email from cache after send-reply:', err);
-      }
-    } catch (err) {
-      console.error('Nem sikerült olvasottnak jelölni a levelet:', err);
-    }
-  }
-  return result;
-});
-
-// Authentikációs állapot kezelése
-let authState = {
-  isAuthenticated: false,
-  provider: null,
-  credentials: null
-};
-
-// Authentikációs állapot mentése
-function saveAuthState() {
-  try {
-    fs.writeFileSync(AUTH_STATE_FILE, JSON.stringify(authState));
-  } catch (err) {
-    console.error('Hiba az authentikációs állapot mentésekor:', err);
-  }
-}
-
-// Authentikációs állapot betöltése
-function loadAuthState() {
-  try {
-    if (fs.existsSync(AUTH_STATE_FILE)) {
-      const data = fs.readFileSync(AUTH_STATE_FILE, 'utf-8');
-      authState = JSON.parse(data);
-      console.log('Auth state loaded:', authState); // Debug log
-    }
-  } catch (err) {
-    console.error('Hiba az authentikációs állapot betöltésekor:', err);
-    // Reset auth state on error
-    authState = {
-      isAuthenticated: false,
-      provider: null,
-      credentials: null
-    };
-    saveAuthState();
-  }
-}
-
-ipcMain.handle('login-with-gmail', async () => {
-  try {
-    // Itt használjuk a meglévő Gmail authentikációt
-    const oAuth2Client = await authorize();
-    let email = null;
-    try {
-      const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-      const profile = await gmail.users.getProfile({ userId: 'me' });
-      email = profile.data.emailAddress;
-    } catch (err) {
-      console.error('Nem sikerült lekérni a Gmail email címet:', err);
-    }
-    authState = {
-      isAuthenticated: true,
-      provider: 'gmail',
-      credentials: {
-        email // elmentjük az email címet is
-      }
-    };
-    saveAuthState();
-    startEmailMonitoring();
-    // Save the authenticated email to the database
-    try {
-      const emailInUse = activationEmail || null;
-      const connection = await createDbConnectionWithFallback();
-      const [result] = await connection.execute(
-        'UPDATE user SET emailInUse = ? WHERE email = ?;',
-        [email, emailInUse]
-      );
-      console.log("Email címek az adatbézisban frissítve:", email, emailInUse); 
-      console.log('[SQL] UPDATE result:', result); // LOG
-      await connection.end();
-    } catch (dbErr) {
-      console.error('[gmail-login] DB emailInUse update error:', dbErr);
-    }
-
-  } catch (error) {
-    console.error('Gmail bejelentkezési hiba:', error);
-    return false;
-  }
-  return true;
-
-});
-
-ipcMain.handle('check-auth-status', async () => {
-  let email = null;
-  if (authState.provider === 'smtp' && authState.credentials) {
-    email = authState.credentials.email;
-  }
-  if (authState.provider === 'gmail') {
-    if (authState.credentials && authState.credentials.email) {
-      email = authState.credentials.email;
-    } else {
-      // Próbáljuk lekérni a Gmail email címet, ha nincs elmentve
-      try {
-        const auth = await authorize();
-        const gmail = google.gmail({ version: 'v1', auth });
-        const profile = await gmail.users.getProfile({ userId: 'me' });
-        email = profile.data.emailAddress;
-        // Frissítsük az authState-et is, hogy legközelebb már elmentve legyen
-        authState.credentials = { email };
-        saveAuthState();
-      } catch (err) {
-        console.error('Nem sikerült lekérni a Gmail email címet (check-auth-status):', err);
-      }
-    }
-  }
-  return {
-    isAuthenticated: authState.isAuthenticated,
-    provider: authState.provider,
-    email
-  };
-});
-
-ipcMain.handle('login-with-smtp', async (event, config) => {
-  try {
-    console.log('Attempting SMTP login...'); // Debug log
-    smtpHandler = new SmtpEmailHandler(config);
-    // Register callback so IMAP 'mail' events trigger an immediate check
-    try {
-      smtpHandler.setOnMailCallback(() => {
-        // trigger a background check without awaiting
-        checkEmailsOnce().catch(err => console.error('Error in onMail triggered check:', err));
-      });
-    } catch (e) {
-      console.warn('Could not set onMail callback on smtpHandler:', e);
-    }
-    const success = await smtpHandler.connect();
-    
-    if (success) {
-      console.log('SMTP connection successful, saving auth state...'); // Debug log
-      authState = {
-        isAuthenticated: true,
-        provider: 'smtp',
-        credentials: {
-          email: config.email,
-          smtpHost: config.smtpHost,
-          smtpPort: config.smtpPort,
-          imapHost: config.imapHost,
-          imapPort: config.imapPort,
-          useSSL: config.useSSL,
-          password: config.password // We need to store the password for reconnection
-        }
-      };
-
-      try {
-        const emailInUse = activationEmail || null;
-        const connection = await createDbConnectionWithFallback();
-        const [result] = await connection.execute(
-          'UPDATE user SET emailInUse = ? WHERE email = ?;',
-          [config.email, emailInUse]
-        );
-        console.log('[SQL] UPDATE result:', result); // LOG
-        await connection.end();
-      } catch (dbErr) {
-        console.error('[smtp-login] DB emailInUse update error:', dbErr);
-      }
-
-      saveAuthState();
-      startEmailMonitoring();
-      return true;
-    }
-    return false;
-  } catch (error) {
-    console.error('SMTP bejelentkezési hiba:', error);
-    // Reset auth state on error
-    authState = {
-      isAuthenticated: false,
-      provider: null,
-      credentials: null
-    };
-    saveAuthState();
-    return false;
-  }
-});
-
-ipcMain.handle('logout', async () => {
-  try {
-    if (smtpHandler) {
-      smtpHandler = null;
-    }
-
-    // Stop email monitoring
-    if (emailMonitoringInterval) {
-      clearInterval(emailMonitoringInterval);
-      emailMonitoringInterval = null;
-    }
-
-    // Try to clear emailInUse in the database for the currently authenticated user.
-    // We'll attempt multiple strategies so we reliably clear the same row we set at login:
-    // 1) Clear the row identified by activationEmail (the licence owner's email) if available
-    // 2) Clear any row that currently has emailInUse equal to the logged-in mailbox address
-    try {
-      let connection;
-      try {
-        connection = await createDbConnectionWithFallback();
-
-        // 1) Clear by activationEmail (this is how login sets the row)
-        if (activationEmail) {
-          try {
-            const [res] = await connection.execute('UPDATE user SET emailInUse = NULL WHERE email = ?;', [activationEmail]);
-            console.log('[logout] Cleared emailInUse for licence owner (activationEmail):', activationEmail, 'result:', res);
-          } catch (dbErr) {
-            console.error('[logout] Failed to clear emailInUse by activationEmail:', dbErr);
-          }
-        }
-      } catch (connErr) {
-        console.error('[logout] DB connection error while clearing emailInUse:', connErr);
-      } finally {
-        try { if (connection) await connection.end(); } catch (e) {}
-      }
-    } catch (err) {
-      console.error('[logout] Error while attempting to clear emailInUse:', err);
-    }
-
-    // If Gmail token exists, clear it (do this after we used authState.credentials above)
-    try {
-      if (authState.provider === 'gmail' && fs.existsSync(TOKEN_PATH)) {
-        // Ne töröljük a fájlt, csak ürítsük ki a tartalmát
-        fs.writeFileSync(TOKEN_PATH, '', 'utf-8');
-      }
-    } catch (e) {
-      console.error('[logout] Failed to clear Gmail token file:', e);
-    }
-
-    authState = {
-      isAuthenticated: false,
-      provider: null,
-      credentials: null
-    };
-    saveAuthState();
-    return true;
-  } catch (error) {
-    console.error('Hiba a kijelentkezés során:', error);
-    return false;
-  }
-});
-
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1300,
-    height: 1080,
-    autoHideMenuBar: true,
-    minWidth: 1300,
-    minHeight: 750,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
-    },
-    icon: path.join(__dirname, 'assets', 'icon.ico')
-  });
-  //mainWindow.webContents.openDevTools();
-
-  // Apply initial display mode from settings
-  if (settings.displayMode === "fullscreen") {
-    mainWindow.maximize();
-  }
-
-  mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
-  // Induláskori egyszeri net ellenőrzés – ha nincs, az első betöltés után jelez
-  checkInternetConnection().then(hasInternet => {
-    if (!hasInternet) {
-      mainWindow.webContents.once('did-finish-load', () => {
-        mainWindow.webContents.send('no-internet-connection');
-      });
-    }
-  });
-}
-
-app.whenReady().then(async () => {
-  loadAuthState();
-  createWindow();
-  startInternetMonitoring();
-  console.log('Initial auth state:', authState); // Debug log
-
-  // Frissítési kliens és események
-  autoUpdater.checkForUpdatesAndNotify();
-
-
-  autoUpdater.on('update-available', () => {
-    console.log('Frissítés elérhető!');
-    if (mainWindow) {
-        mainWindow.webContents.send('update-ava');
-    }
-  });
-  
-  autoUpdater.on('download-progress', (progressTrack) => {
-    console.log(`Frissítés letöltése: ${progressTrack.percent}%`);
-    if (mainWindow) {
-      mainWindow.webContents.send('update-download-progress', progressTrack.percent);
-    }
-  });
-
-  autoUpdater.on('update-downloaded', () => {
-    console.log('Frissítés letöltve!');
-    if (mainWindow) {
-      mainWindow.webContents.send('update-ready');
-    }
-  });
-
-  autoUpdater.on('error', (err) => {
-    console.error('Frissítési hiba:', err);
-    if (mainWindow) {
-      mainWindow.webContents.send('update-error', err.message);
-      dialog.showMessageBox(mainWindow, {
-        type: 'error',
-        title: 'Frissítési hiba',
-        message: `Hiba történt a frissítés során: ${err.message}`,
-        buttons: ['OK']
-      });
-    }
-  });
-
-
-  if (authState.isAuthenticated) {
-    try {
-      if (authState.provider === 'gmail') {
-        if (fs.existsSync(TOKEN_PATH)) {
-          await authorize();
-          startEmailMonitoring();
-        } else {
-          authState.isAuthenticated = false;
-          saveAuthState();
-        }
-      } else if (authState.provider === 'smtp' && authState.credentials) {
-        console.log('Reconnecting to SMTP...'); // Debug log
-        smtpHandler = new SmtpEmailHandler(authState.credentials);
-        try {
-          smtpHandler.setOnMailCallback(() => checkEmailsOnce().catch(err => console.error('Error in onMail triggered check:', err)));
-        } catch (e) { console.warn('Could not set onMail callback on smtpHandler:', e); }
-        const success = await smtpHandler.connect();
-        if (success) {
-          console.log('SMTP reconnection successful'); // Debug log
-          startEmailMonitoring();
-        } else {
-          console.log('SMTP reconnection failed'); // Debug log
-          authState.isAuthenticated = false;
-          saveAuthState();
-        }
-      }
-    } catch (error) {
-      console.error('Hiba az újracsatlakozás során:', error);
-      authState.isAuthenticated = false;
-      saveAuthState();
-    }
-  }
-});
-
-app.on('window-all-closed', () => {
-  if(process.platform !== 'darwin') app.quit();
-});
-
-// Add cleanup on app quit
-app.on('before-quit', () => {
-  stopEmailMonitoring();
-  stopInternetMonitoring();
-});
-
-// Left navbar handlers
-ipcMain.handle("getLeftNavbarMode", async () => {
-    return settings.LeftNavBarOn ?? true;
-});
-
-ipcMain.handle("setLeftNavbarMode", async (event, mode) => {
-  if (!mainWindow) {
-    console.error('mainWindow is not initialized');
-    return false;
-  }
-  settings.LeftNavBarOn = mode;
-  saveSettings(settings);
-  return true;
-});
-
-// Display mode handlers
-ipcMain.handle("getDisplayMode", async () => {
-  return settings.displayMode || "windowed";
-});
-
-ipcMain.handle("setDisplayMode", async (event, mode) => {
-  if (!mainWindow) {
-    console.error('mainWindow is not initialized');
-    return false;
-  }
-
-  settings.displayMode = mode;
-  saveSettings(settings);
-  
-  if (mode === "fullscreen") {
-    mainWindow.maximize();
-  } else {
-    mainWindow.unmaximize();
-  }
-  
-  return true;
-});
-
-function extractEmailAddress(fromField) {
-  const match = fromField && fromField.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-  return match ? match[1] : null;
-}
-
-ipcMain.handle('get-replied-email-ids', async () => {
-  const idsToFetch = repliedEmailIds.slice(-20);
-  return idsToFetch;
-});
-
-// IPC handler: Get reply statistics (aggregated by day, last 5 days only)
-ipcMain.handle('get-reply-stats', async () => {
-  try {
-    const sentLog = readSentEmailsLog();
-    if (!sentLog || sentLog.length === 0) return [];
-    // Csak az utolsó 100 rekordot nézzük teljesítmény miatt
-    const recent = sentLog.slice(-100);
-    // Aggregálás nap szerint (utolsó 5 nap)
-    const counts = {};
-    const now = new Date();
-    for (let i = 4; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(now.getDate() - i);
-      const day = d.toLocaleDateString('hu-HU');
-      counts[day] = 0;
-    }
-    recent.forEach(e => {
-      if (!e || !e.date) return;
-      const d = new Date(e.date);
-      if (isNaN(d)) return;
-      const day = d.toLocaleDateString('hu-HU');
-      if (day in counts) counts[day] = (counts[day] || 0) + 1;
-    });
-    // Csak az utolsó 5 nap, növekvő sorrendben
-    const sorted = Object.entries(counts)
-      .map(([date, count]) => ({ date, count }))
-      .sort((a, b) => new Date(a.date.split('.').reverse().join('-')) - new Date(b.date.split('.').reverse().join('-')));
-    return sorted;
-  } catch (e) {
-    console.error('[get-reply-stats] Error:', e);
-    return [];
-  }
-});
-
-// Képleírás generálása OpenAI Vision-nel
 async function describeImagesWithAI(images) {
   if (!images || images.length === 0) return [];
   const descriptions = [];
@@ -2999,43 +512,951 @@ async function describeImagesWithAI(images) {
   return descriptions;
 }
 
-ipcMain.handle('check-licence', async (event, { email, licenceKey }) => {
-  let connection;
-  try {
-    connection = await createDbConnectionWithFallback();
-    const [rows] = await connection.execute(
-      'SELECT id FROM user WHERE email = ? AND licence = ? LIMIT 1',
-      [email, licenceKey]
-    );
+// Prompt alap
+const promptBase = `Egy ügyféltől a következő email érkezett:\n\n{greeting}\n\n"{email.body}"\n\n{imageDescriptions}\n\n{excelImageDescriptions}\n\nA következő adatokat használd fel a válaszadáshoz:\n{excelData}\n\n{signature}\n\n{webUrls}\n{embeddingsContext}\nEzekről a htmlek-ről is gyűjtsd ki a szükséges információkat a válaszadáshoz: {webUrls}, gyűjts ki a szükséges információkat, linkeket, telefonszámokat, email címeket és így tovább és ezeket küldd vissza.\n\n`;
 
-    if (rows && rows.length > 0) {
-      return { success: true };
+async function generateReply(email) {
+  const settings = getSettings();
+  const authState = getAuthState();
+  
+  try {
+    // Teljes email lekérése
+    try {
+      if (email && email.id) {
+        try {
+          const full = await getEmailByIdBasedOnProvider(email.id);
+          if (full) {
+            if (full.body) email.body = full.body;
+            if (full.aiImageResponses) email.aiImageResponses = full.aiImageResponses;
+            if (full.subject) email.subject = full.subject;
+            if (full.from) email.from = full.from;
+          }
+        } catch (e) {
+          console.warn('[generateReply] could not fetch full email by id:', e);
+        }
+      }
+    } catch (e) {
+      console.warn('[generateReply] pre-fetch full email guard failed', e);
     }
-    return { success: false, error: 'Hibás licenc vagy email.' };
-  } catch (err) {
-    console.error('Licenc ellenőrzési hiba:', err);
-    return { success: false, error: 'Adatbázis hiba.' };
-  } finally {
-    try { if (connection) await connection.end(); } catch (e) {}
+
+    // RemainingGenerations csökkentése
+    try {
+      let userEmail = null;
+      if (activationEmail) {
+        userEmail = activationEmail;
+      } else if (authState.credentials && authState.credentials.email) {
+        userEmail = authState.credentials.email;
+      } else if (smtpHandler && smtpHandler.config && smtpHandler.config.email) {
+        userEmail = smtpHandler.config.email;
+      }
+      if (userEmail) {
+        await decrementRemainingGenerations(userEmail);
+      }
+    } catch (err) {
+      console.error('[generateReply] Error decrementing remainingGenerations:', err);
+    }
+
+    // Web URL-ek lekérése
+    let htmlContents = [];
+    if (settings.webUrls && Array.isArray(settings.webUrls)) {
+      for (const url of settings.webUrls) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const html = await response.text();
+            htmlContents.push(html);
+          }
+        } catch (error) {
+          console.error(`Error fetching web URL (${url}):`, error);
+        }
+      }
+    }
+    const combinedHtml = htmlContents.join('\n\n');
+
+    // Excel adatok
+    const { allData: excelData, allImages: excelImages } = await readExcelDataWithImages();
+    const formattedExcelData = Object.entries(excelData)
+      .map(([sheetName, rows]) => {
+        const rowsText = rows.map((row, index) => {
+          if (typeof row === 'object' && !Array.isArray(row)) {
+            return `   ${index + 1}. ${Object.entries(row).map(([key, value]) => `${key}: ${value}`).join(', ')}`;
+          } else if (Array.isArray(row)) {
+            return `   ${index + 1}. ${row.join(', ')}`;
+          } else {
+            return `   ${index + 1}. ${row}`;
+          }
+        }).join('\n');
+        return `Munkalap: ${sheetName}\n${rowsText}`;
+      })
+      .join('\n\n');
+
+    // Excel képek leírása
+    let excelImageDescriptions = '';
+    if (excelImages && excelImages.length > 0) {
+      const aiDescs = await describeImagesWithAI(excelImages);
+      excelImageDescriptions = '\nAz Excelből származó képek AI által generált leírásai:';
+      excelImageDescriptions += aiDescs.map((desc, idx) => `\n${idx + 1}. ${desc}`).join('');
+      excelImageDescriptions += '\n';
+    }
+
+    const greeting = settings.greeting || defaultSettings.greeting;
+    const signature = settings.signature || defaultSettings.signature;
+
+    // Email képleírások
+    let imageDescriptions = '';
+    if (email.aiImageResponses && email.aiImageResponses.length > 0) {
+      imageDescriptions = '\nA levélhez csatolt képek AI által generált leírásai:';
+      imageDescriptions += email.aiImageResponses.map((resp, idx) => {
+        let desc = '';
+        if (resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) {
+          desc = resp.choices[0].message.content;
+        } else {
+          desc = JSON.stringify(resp);
+        }
+        return `\n${idx + 1}. ${desc}`;
+      }).join('');
+      imageDescriptions += '\n';
+    }
+
+    // Safety limits
+    const SAFE_HTML_MAX_CHARS = 100000;
+    const SAFE_EXCEL_MAX_CHARS = 40000;
+    const SAFE_IMAGE_DESC_MAX_CHARS = 3000;
+
+    const safeCombinedHtml = safeTrim(combinedHtml || '', SAFE_HTML_MAX_CHARS);
+    const safeFormattedExcelData = safeTrim(formattedExcelData || '', SAFE_EXCEL_MAX_CHARS);
+    const safeImageDescriptions = safeTrim(imageDescriptions || '', SAFE_IMAGE_DESC_MAX_CHARS);
+    const safeExcelImageDescriptions = safeTrim(excelImageDescriptions || '', SAFE_IMAGE_DESC_MAX_CHARS);
+
+    // Embeddings context (simplified version)
+    let embeddingsContext = '';
+    try {
+      // Excel cell lookup detection
+      const searchText = `${email.subject || ''}\n${email.body || ''}`;
+      const direct = String(searchText).match(/([^!\n\r]+)[!\s]+([A-Za-z]+)\s*-?\s*(\d{1,6})/);
+      if (direct) {
+        const detected = { sheet: direct[1].trim(), colLetter: direct[2].trim().toUpperCase(), row: Number(direct[3]) };
+        try {
+          const lookupRes = await findExcelCell(detected);
+          if (lookupRes && lookupRes.success && lookupRes.text) {
+            const short = String(lookupRes.text).slice(0, 2000);
+            const cellAddr = `${detected.sheet || ''}!${detected.colLetter || ''}${detected.row || ''}`;
+            embeddingsContext += `EXACT_CELL_LOOKUP: ${cellAddr} => ${short}\n\n`;
+          }
+        } catch (e) {
+          // ignore lookup failures
+        }
+      }
+    } catch (e) {
+      // non-fatal
+    }
+
+    // Prompt összeállítása
+    const finalPrompt = promptBase
+      .replace('{greeting}', greeting)
+      .replace('{signature}', signature)
+      .replace('{email.body}', email.body || '')
+      .replace('{excelData}', safeFormattedExcelData)
+      .replace('{imageDescriptions}', safeImageDescriptions)
+      .replace('{excelImageDescriptions}', safeExcelImageDescriptions)
+      .replace('{webUrls}', safeCombinedHtml || 'N/A')
+      .replace('{embeddingsContext}', embeddingsContext || '');
+
+    // AI hívás
+    const systemPrompt = "Te egy segítőkész asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek. Az Excel adatokat és a megadott html-ről szerzett információkat használd fel a válaszadáshoz, ha releváns információt találsz bennük. Elsődlegesen a levél tartalma alapján válaszolj.";
+
+    let messageContent = null;
+
+    // Ollama próba
+    try {
+      console.log('[generateReply] Trying Ollama local server...');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+      const promptForOllama = `${systemPrompt}\n\n${finalPrompt}`;
+
+      const localResp = await fetch('http://192.168.88.12:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'llama3.1:8b',
+          prompt: promptForOllama,
+          temperature: 1,
+          stream: false
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (localResp && localResp.ok) {
+        const localData = await localResp.json();
+        if (typeof localData?.response === 'string') {
+          messageContent = localData.response;
+          console.log('[generateReply] Local Ollama responded.');
+        }
+      }
+    } catch (localErr) {
+      console.warn('[generateReply] Local Ollama unavailable:', localErr?.message || localErr);
+    }
+
+    // OpenAI fallback
+    if (!messageContent) {
+      try {
+        console.log('[generateReply] Sending prompt to OpenAI...');
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-5-mini',
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: finalPrompt }],
+          temperature: 1
+        });
+        messageContent = completion?.choices?.[0]?.message?.content;
+      } catch (err) {
+        console.error('[generateReply] OpenAI completion error:', err);
+      }
+    }
+
+    if (!messageContent || String(messageContent).trim().length === 0) {
+      return 'Sajnálom, nem sikerült érdemi választ generálni a megadott adatok alapján.';
+    }
+    return messageContent;
+  } catch (error) {
+    console.error('Hiba a válasz generálásakor:', error);
+    throw error;
+  }
+}
+
+// =============================================================================
+// EMAIL SENDING
+// =============================================================================
+
+async function sendReply({ to, subject, body, emailId, originalEmail }) {
+  const authState = getAuthState();
+  const settings = getSettings();
+  
+  try {
+    console.log(`[sendReply] Küldés: to=${to}, subject=${subject}`);
+
+    let sendResult;
+    const signatureText = settings.signatureText || 'AiMail';
+    const signatureImage = settings.signatureImage || '';
+    const watermarkImagePath = path.join(__dirname, 'src', 'images', 'watermark.png');
+    let imageCid = 'signature';
+    let watermarkCid = 'watermark';
+    let htmlBody = body.replace(/\n/g, '<br>');
+
+    if (signatureText) htmlBody += `<br><br>${signatureText}`;
+    if (signatureImage && fs.existsSync(signatureImage)) {
+      htmlBody += `<br><img src="cid:${imageCid}" style="width:25%">`;
+    }
+    if (fs.existsSync(watermarkImagePath)) {
+      htmlBody += `<br><img src="cid:${watermarkCid}" style="width:25%">`;
+    }
+
+    if (originalEmail) {
+      htmlBody += `<br><br>--- Eredeti üzenet ---`;
+      htmlBody += `<br><br><strong>Feladó:</strong> ${originalEmail.to}`;
+      htmlBody += `<br><strong>Tárgy:</strong> ${originalEmail.subject}`;
+      htmlBody += `<br><br><strong>Üzenet:</strong><br>${originalEmail.body.replace(/\n/g, '<br>')}`;
+    }
+
+    // Csatolmányok
+    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+    let attachmentFiles = [];
+    if (fs.existsSync(attachmentsDir)) {
+      attachmentFiles = fs.readdirSync(attachmentsDir).filter(f => fs.statSync(path.join(attachmentsDir, f)).isFile());
+    }
+    const nodemailerAttachments = attachmentFiles.map(filename => ({
+      filename,
+      path: path.join(attachmentsDir, filename)
+    }));
+
+    if (signatureImage && fs.existsSync(signatureImage)) {
+      nodemailerAttachments.push({
+        filename: path.basename(signatureImage),
+        path: signatureImage,
+        cid: imageCid
+      });
+    }
+    if (fs.existsSync(watermarkImagePath)) {
+      nodemailerAttachments.push({
+        filename: path.basename(watermarkImagePath),
+        path: watermarkImagePath,
+        cid: watermarkCid
+      });
+    }
+
+    // MIME message
+    let boundary = '----=_Part_' + Math.random().toString(36).slice(2);
+    let mimeMsg = '';
+    let encodedSubject = `=?UTF-8?B?${Buffer.from(subject || 'Válasz', 'utf-8').toString('base64')}?=`;
+    mimeMsg += `To: ${formatAddress(to)}\r\n`;
+    mimeMsg += `Subject: ${encodedSubject}\r\n`;
+    mimeMsg += `MIME-Version: 1.0\r\n`;
+    mimeMsg += `Content-Type: multipart/related; boundary="${boundary}"\r\n`;
+
+    mimeMsg += `\r\n--${boundary}\r\n`;
+    mimeMsg += `Content-Type: text/html; charset="UTF-8"\r\n`;
+    mimeMsg += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
+    mimeMsg += `<html><body>${htmlBody}</body></html>\r\n`;
+
+    for (const attachment of nodemailerAttachments) {
+      const fileData = fs.readFileSync(attachment.path);
+      const mimeType = attachment.cid ? 'image/png' : 'application/octet-stream';
+      mimeMsg += `\r\n--${boundary}\r\n`;
+      mimeMsg += `Content-Type: ${mimeType}\r\n`;
+      mimeMsg += `Content-Transfer-Encoding: base64\r\n`;
+      mimeMsg += `Content-Disposition: ${attachment.cid ? 'inline' : 'attachment'}; filename="${attachment.filename}"\r\n`;
+      if (attachment.cid) mimeMsg += `Content-ID: <${attachment.cid}>\r\n`;
+      mimeMsg += `\r\n${fileData.toString('base64').replace(/(.{76})/g, '$1\r\n')}\r\n`;
+    }
+
+    mimeMsg += `--${boundary}--`;
+
+    const encodedMessage = Buffer.from(mimeMsg)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    if (authState.provider === 'smtp') {
+      await smtpHandler.connect();
+      const mailOptions = {
+        to,
+        subject,
+        body: htmlBody,
+        html: htmlBody,
+        attachments: nodemailerAttachments,
+      };
+      const result = await smtpHandler.sendEmail(mailOptions);
+      if (result.success) {
+        sendResult = { success: true };
+        console.log(`[sendReply] SMTP küldés sikeres.`);
+      } else {
+        throw new Error(result.error || 'SMTP küldési hiba.');
+      }
+    } else if (authState.provider === 'gmail') {
+      const auth = await authorize();
+      const gmail = google.gmail({ version: 'v1', auth });
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: encodedMessage },
+      });
+      sendResult = { success: true };
+      console.log(`[sendReply] Gmail küldés sikeres.`);
+    }
+
+    // Log sent email
+    appendSentEmailLog({
+      id: emailId || null,
+      to,
+      subject,
+      date: new Date().toISOString(),
+      body: body,
+      signatureText: signatureText,
+      signatureImage: signatureImage,
+    });
+
+    return sendResult;
+  } catch (error) {
+    console.error(`[sendReply] Hiba: ${error.message}`);
+    throw error;
+  }
+}
+
+// =============================================================================
+// IPC HANDLERS
+// =============================================================================
+
+// Attachment handlers
+ipcMain.handle('upload-attachment', async (event, { name, size, content }) => {
+  try {
+    if (!name || !content) return { success: false, error: 'Hiányzó fájlnév vagy tartalom.' };
+    if (size > 25 * 1024 * 1024) return { success: false, error: 'A fájl mérete nem lehet nagyobb 25 MB-nál.' };
+    
+    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+    if (!fs.existsSync(attachmentsDir)) fs.mkdirSync(attachmentsDir, { recursive: true });
+    
+    let base = path.parse(name).name;
+    let ext = path.parse(name).ext;
+    let filePath = path.join(attachmentsDir, name);
+    let counter = 1;
+    while (fs.existsSync(filePath)) {
+      filePath = path.join(attachmentsDir, `${base}(${counter})${ext}`);
+      counter++;
+    }
+    fs.writeFileSync(filePath, Buffer.from(content));
+    return { success: true, filePath };
+  } catch (error) {
+    console.error('[upload-attachment] Hiba:', error);
+    return { success: false, error: error.message };
   }
 });
 
-
-ipcMain.handle('read-sent-emails-log', async () => {
+ipcMain.handle('delete-attachment', async (event, { name }) => {
   try {
-    // Use the helper if available
-    if (typeof readSentEmailsLog === 'function') {
-      return readSentEmailsLog();
-    }
-    // Fallback: read the file directly
-    const sentPath = findFile('sentEmailsLog.json');
-    if (fs.existsSync(sentPath)) {
-      return JSON.parse(fs.readFileSync(sentPath, 'utf-8'));
-    }
+    if (!name) return { success: false, error: 'Hiányzó fájlnév.' };
+    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+    const filePath = path.join(attachmentsDir, name);
+    if (!fs.existsSync(filePath)) return { success: false, error: 'A fájl nem található.' };
+    fs.unlinkSync(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error('Hiba a csatolmány törlésekor:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('list-attachments', async () => {
+  try {
+    const attachmentsDir = path.join(app.getPath('userData'), 'attachments');
+    if (!fs.existsSync(attachmentsDir)) return [];
+    return fs.readdirSync(attachmentsDir).filter(f => fs.statSync(path.join(attachmentsDir, f)).isFile());
+  } catch (error) {
+    console.error('Hiba a csatolmányok listázásakor:', error);
     return [];
-  } catch (err) {
-    console.error('Hiba a sentEmailsLog.json olvasásakor:', err);
+  }
+});
+
+// Demo/Trial handlers
+ipcMain.handle('is-demo-over', async () => {
+  let licence = null;
+  try {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      licence = await win.webContents.executeJavaScript('localStorage.getItem("licence")');
+    }
+  } catch (e) {
+    console.error('[is-demo-over] Could not read licence:', e);
+  }
+
+  const demoOver = await isDemoOver(licence);
+  if (demoOver && licence) {
+    await setTrialEndedForLicence(licence);
+  }
+  return demoOver;
+});
+
+ipcMain.handle('get-trial-status', async () => {
+  let licence = null;
+  try {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      licence = await win.webContents.executeJavaScript('localStorage.getItem("licence")');
+    }
+  } catch (e) {
+    console.error('[get-trial-status] Could not read licence:', e);
+  }
+
+  const trialStatus = await getTrialStatusFromDb(licence);
+  if (trialStatus) {
+    return { ...trialStatus, licence };
+  }
+
+  const log = readSentEmailsLog();
+  return {
+    trialEndDate: null,
+    remainingGenerations: null,
+    licence: licence,
+    sentEmailsCount: Array.isArray(log) ? log.length : 0
+  };
+});
+
+// Settings handlers
+ipcMain.handle('setApiKey', async (event, apiKey) => {
+  const config = readConfig();
+  config.OPENAI_API_KEY = apiKey;
+  saveConfig(config);
+  openai.apiKey = apiKey;
+  return true;
+});
+
+ipcMain.handle('getApiKey', async () => {
+  const apiKey = await getSecret('OpenAPIKey');
+  if (!apiKey) throw new Error('OpenAPI kulcs nincs beállítva!');
+  return apiKey;
+});
+
+ipcMain.handle('getPromptSettings', async () => {
+  const settings = getSettings();
+  return {
+    greeting: settings.greeting || defaultSettings.greeting,
+    signature: settings.signature || defaultSettings.signature,
+    signatureText: settings.signatureText || defaultSettings.signatureText,
+    signatureImage: settings.signatureImage || defaultSettings.signatureImage
+  };
+});
+
+ipcMain.handle('savePromptSettings', async (event, { greeting, signature, signatureText, signatureImage }) => {
+  const settings = getSettings();
+  settings.greeting = greeting;
+  settings.signature = signature;
+  settings.signatureText = signatureText;
+  settings.signatureImage = signatureImage;
+  saveSettings(settings);
+  return true;
+});
+
+ipcMain.handle('getWebSettings', async () => {
+  const settings = getSettings();
+  return { webUrls: settings.webUrls || defaultSettings.webUrls };
+});
+
+ipcMain.handle('saveWebSettings', async (event, { webUrls }) => {
+  const settings = getSettings();
+  settings.webUrls = Array.isArray(webUrls) ? webUrls : [];
+  saveSettings(settings);
+  return true;
+});
+
+ipcMain.handle('getAutoSend', async () => getSetting('autoSend', false));
+ipcMain.handle('getHalfAutoSend', async () => getSetting('halfAuto', false));
+
+ipcMain.handle('setAutoSend', async (event, value) => {
+  setSetting('autoSend', value);
+  startEmailMonitoring();
+});
+
+ipcMain.handle('setHalfAutoSend', async (event, value) => {
+  setSetting('halfAuto', value);
+  startEmailMonitoring();
+});
+
+ipcMain.handle('setAutoSendTimes', async (event, { startTime, endTime }) => {
+  const settings = getSettings();
+  settings.autoSendStartTime = startTime;
+  settings.autoSendEndTime = endTime;
+  saveSettings(settings);
+  return true;
+});
+
+ipcMain.handle('getAutoSendTimes', async () => {
+  const settings = getSettings();
+  return { startTime: settings.autoSendStartTime, endTime: settings.autoSendEndTime };
+});
+
+ipcMain.handle('getMinEmailDate', async () => getSetting('minEmailDate', ''));
+ipcMain.handle('setMinEmailDate', async (event, dateStr) => { setSetting('minEmailDate', dateStr); return true; });
+ipcMain.handle('getMaxEmailDate', async () => getSetting('maxEmailDate', ''));
+ipcMain.handle('setMaxEmailDate', async (event, dateStr) => { setSetting('maxEmailDate', dateStr); return true; });
+ipcMain.handle('getFromDate', async () => getSetting('fromDate', ''));
+ipcMain.handle('setFromDate', async (event, dateStr) => { setSetting('fromDate', dateStr); return true; });
+
+ipcMain.handle('getIgnoredEmails', async () => getSetting('ignoredEmails', []));
+ipcMain.handle('setIgnoredEmails', async (event, ignoredEmails) => {
+  const cleaned = Array.isArray(ignoredEmails)
+    ? ignoredEmails.filter(e => typeof e === 'string').map(e => e.trim()).filter(Boolean)
+    : [];
+  setSetting('ignoredEmails', cleaned);
+  return true;
+});
+
+ipcMain.handle('getNotifyOnAutoReply', async () => getSetting('notifyOnAutoReply', false));
+ipcMain.handle('setNotifyOnAutoReply', async (event, value) => { setSetting('notifyOnAutoReply', value); return true; });
+ipcMain.handle('getNotificationEmail', async () => getSetting('notificationEmail', ''));
+ipcMain.handle('setNotificationEmail', async (event, email) => { setSetting('notificationEmail', email); return true; });
+
+ipcMain.handle('getDisplayMode', async () => getSetting('displayMode', 'windowed'));
+ipcMain.handle('setDisplayMode', async (event, mode) => {
+  if (!mainWindow) return false;
+  setSetting('displayMode', mode);
+  if (mode === 'fullscreen') {
+    mainWindow.maximize();
+  } else {
+    mainWindow.unmaximize();
+  }
+  return true;
+});
+
+ipcMain.handle('getLeftNavbarMode', async () => getSetting('LeftNavBarOn', true));
+ipcMain.handle('setLeftNavbarMode', async (event, mode) => {
+  if (!mainWindow) return false;
+  setSetting('LeftNavBarOn', mode);
+  return true;
+});
+
+// Excel handlers
+ipcMain.handle('excel-exists', async () => excelExists());
+ipcMain.handle('get-excel-path', async () => getExcelPath());
+ipcMain.handle('read-excel-file', async () => readExcelFile());
+ipcMain.handle('save-excel-file', async (event, payload) => saveExcelFile(payload));
+ipcMain.handle('upload-excel-file', async (event, fileContent) => uploadExcelFile(fileContent));
+ipcMain.handle('lookup-excel-cell', async (event, params) => findExcelCell(params));
+
+// Image handlers
+ipcMain.handle('upload-image-file', async (event, fileContent) => {
+  try {
+    const imagesDir = path.join(app.getPath('userData'), 'images');
+    if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+    const targetPath = path.join(imagesDir, 'signature.png');
+    fs.writeFileSync(targetPath, Buffer.from(fileContent));
+    setSetting('signatureImage', targetPath);
+    return { success: true };
+  } catch (error) {
+    console.error('Hiba a kép fájl feltöltésekor:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-signature-image', async () => {
+  try {
+    const imagePath = path.join(__dirname, 'src', 'images', 'signature.png');
+    if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+    setSetting('signatureImage', '');
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('upload-signature-image', async (event, fileContent) => {
+  try {
+    const imagesDir = path.join(app.getPath('userData'), 'images');
+    if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+    const targetPath = path.join(imagesDir, 'signature.png');
+    fs.writeFileSync(targetPath, Buffer.from(fileContent));
+    setSetting('signatureImage', targetPath);
+    return { success: true, path: targetPath };
+  } catch (error) {
+    console.error('Hiba a signature kép feltöltésekor:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('getSignatureImageFileUrl', async () => {
+  try {
+    const settings = getSettings();
+    if (!settings.signatureImage) return '';
+    let absPath = settings.signatureImage;
+    if (!path.isAbsolute(absPath)) {
+      absPath = path.join(__dirname, settings.signatureImage);
+    }
+    if (!fs.existsSync(absPath)) return '';
+    return 'file://' + absPath.replace(/\\/g, '/');
+  } catch (e) {
+    return '';
+  }
+});
+
+// Dialog handlers
+ipcMain.handle('show-file-dialog', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    try {
+      const filePath = result.filePaths[0];
+      const content = fs.readFileSync(filePath);
+      const filename = filePath.split(/[/\\]/).pop();
+      return { success: true, content, filePath, filename };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, error: 'No file selected' };
+});
+
+ipcMain.handle('show-image-dialog', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Image Files', extensions: ['png', 'jpg', 'jpeg'] }]
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    try {
+      const filePath = result.filePaths[0];
+      const content = fs.readFileSync(filePath);
+      return { success: true, content, filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, error: 'No file selected' };
+});
+
+ipcMain.handle('show-directory-dialog', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+  if (!result.canceled && result.filePaths.length > 0) {
+    return { success: true, dirPath: result.filePaths[0] };
+  }
+  return { success: false, error: 'No directory selected' };
+});
+
+// Email handlers
+ipcMain.handle('get-unread-emails', async () => {
+  try {
+    const cached = readCachedEmails();
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      return cached;
+    }
+    const authState = getAuthState();
+    if (authState.provider === 'gmail' || authState.provider === 'smtp') {
+      const emails = await getEmailsBasedOnProvider();
+      saveCachedEmails(emails);
+      return emails;
+    }
+  } catch (error) {
+    console.error('Hiba az emailek lekérésekor:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-email-by-id', async (event, id) => {
+  try {
+    return await getEmailByIdBasedOnProvider(id);
+  } catch (error) {
+    console.error('Hiba az email lekérésekor:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-user-email', async () => {
+  try {
+    const authState = getAuthState();
+    if (authState.provider === 'smtp' && smtpHandler) {
+      return smtpHandler.config.email;
+    } else if (authState.provider === 'gmail') {
+      const auth = await authorize();
+      const gmail = google.gmail({ version: 'v1', auth });
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      return profile.data.emailAddress;
+    }
+    throw new Error('No valid email provider');
+  } catch (error) {
+    console.error('Hiba az email cím lekérésekor:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('generate-reply', async (event, email) => {
+  console.log('[ipc] generate-reply invoked');
+  const TIMEOUT_MS = 60 * 1000;
+  try {
+    const reply = await Promise.race([
+      generateReply(email),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), TIMEOUT_MS))
+    ]);
+    return { subject: email?.subject || '', body: reply };
+  } catch (error) {
+    console.error('Hiba a válasz generálásakor:', error);
+    return { subject: email?.subject || '', body: 'Sajnálom, nem sikerült választ generálni.' };
+  }
+});
+
+ipcMain.handle('send-reply', async (event, { to, subject, body, emailId }) => {
+  const result = await sendReply({ to, subject, body, emailId });
+  if (result && result.success && emailId) {
+    try {
+      const authState = getAuthState();
+      if (authState.provider === 'smtp' && smtpHandler) {
+        await smtpHandler.markAsRead(emailId);
+      } else if (authState.provider === 'gmail') {
+        const auth = await authorize();
+        const gmail = google.gmail({ version: 'v1', auth });
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id: emailId,
+          requestBody: { removeLabelIds: ['UNREAD'] }
+        });
+      }
+      if (!repliedEmailIds.includes(emailId)) {
+        repliedEmailIds.push(emailId);
+        saveRepliedEmails(repliedEmailIds);
+      }
+      removeEmailFromCache(emailId);
+    } catch (err) {
+      console.error('Nem sikerült olvasottnak jelölni:', err);
+    }
+  }
+  return result;
+});
+
+ipcMain.handle('get-replied-email-ids', async () => repliedEmailIds.slice(-20));
+
+ipcMain.handle('get-reply-stats', async () => {
+  try {
+    const sentLog = readSentEmailsLog();
+    if (!sentLog || sentLog.length === 0) return [];
+    const recent = sentLog.slice(-100);
+    const counts = {};
+    const now = new Date();
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      counts[d.toLocaleDateString('hu-HU')] = 0;
+    }
+    recent.forEach(e => {
+      if (!e || !e.date) return;
+      const d = new Date(e.date);
+      if (isNaN(d)) return;
+      const day = d.toLocaleDateString('hu-HU');
+      if (day in counts) counts[day]++;
+    });
+    return Object.entries(counts)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => new Date(a.date.split('.').reverse().join('-')) - new Date(b.date.split('.').reverse().join('-')));
+  } catch (e) {
+    console.error('[get-reply-stats] Error:', e);
     return [];
+  }
+});
+
+ipcMain.handle('read-sent-emails-log', async () => readSentEmailsLog());
+ipcMain.handle('read-generated-replies', async () => readGeneratedReplies());
+ipcMain.handle('save-generated-replies', async (event, replies) => saveGeneratedReplies(replies));
+
+// Auth handlers
+ipcMain.handle('login-with-gmail', async () => {
+  try {
+    const oAuth2Client = await authorize();
+    let email = null;
+    try {
+      const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      email = profile.data.emailAddress;
+    } catch (err) {
+      console.error('Nem sikerült lekérni a Gmail email címet:', err);
+    }
+    setGmailAuth(email);
+    startEmailMonitoring();
+    
+    if (activationEmail && email) {
+      await updateEmailInUse(email, activationEmail);
+    }
+    return true;
+  } catch (error) {
+    console.error('Gmail bejelentkezési hiba:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('login-with-smtp', async (event, config) => {
+  try {
+    smtpHandler = new SmtpEmailHandler(config);
+    try {
+      smtpHandler.setOnMailCallback(() => {
+        checkEmailsOnce().catch(err => console.error('Error in onMail check:', err));
+      });
+    } catch (e) {
+      console.warn('Could not set onMail callback:', e);
+    }
+    const success = await smtpHandler.connect();
+    
+    if (success) {
+      setSmtpAuth(config);
+      if (activationEmail) {
+        await updateEmailInUse(config.email, activationEmail);
+      }
+      // Start IDLE monitoring for real-time new mail notifications
+      try {
+        await smtpHandler.startIdleMonitoring();
+        console.log('SMTP IDLE monitoring started');
+      } catch (idleErr) {
+        console.warn('Could not start IDLE monitoring:', idleErr);
+      }
+      startEmailMonitoring();
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('SMTP bejelentkezési hiba:', error);
+    setAuthState({ isAuthenticated: false, provider: null, credentials: null });
+    return false;
+  }
+});
+
+ipcMain.handle('check-auth-status', async () => {
+  const authState = getAuthState();
+  let email = null;
+  if (authState.provider === 'smtp' && authState.credentials) {
+    email = authState.credentials.email;
+  }
+  if (authState.provider === 'gmail') {
+    if (authState.credentials && authState.credentials.email) {
+      email = authState.credentials.email;
+    } else {
+      try {
+        const auth = await authorize();
+        const gmail = google.gmail({ version: 'v1', auth });
+        const profile = await gmail.users.getProfile({ userId: 'me' });
+        email = profile.data.emailAddress;
+        setAuthState({ credentials: { email } });
+      } catch (err) {
+        console.error('Nem sikerült lekérni a Gmail email címet:', err);
+      }
+    }
+  }
+  return { isAuthenticated: authState.isAuthenticated, provider: authState.provider, email };
+});
+
+ipcMain.handle('logout', async () => {
+  try {
+    if (smtpHandler) smtpHandler = null;
+    stopEmailMonitoring();
+    
+    if (activationEmail) {
+      await clearEmailInUse(activationEmail);
+    }
+    
+    fs.writeFileSync(CACHED_EMAILS_FILE, JSON.stringify([]));
+    logoutAuth();
+    return true;
+  } catch (error) {
+    console.error('Hiba a kijelentkezés során:', error);
+    return false;
+  }
+});
+
+// Licence handlers
+ipcMain.handle('check-licence', async (event, { email, licenceKey }) => checkLicenceInDb(email, licenceKey));
+ipcMain.handle('is-licence-activated', async (event, { email, licenceKey }) => isLicenceActivated(email, licenceKey));
+ipcMain.handle('activate-licence', async (event, { email, licenceKey }) => activateLicence(email, licenceKey));
+
+// Activation email handlers
+ipcMain.handle('set-activation-email', async (event, email) => {
+  activationEmail = email;
+  setSetting('activationEmail', email);
+  console.log('Activation email set:', activationEmail);
+  return true;
+});
+
+ipcMain.handle('get-activation-email', async () => getSetting('activationEmail', null) || activationEmail);
+
+// Misc handlers
+ipcMain.handle('check-internet', async () => checkInternetConnection());
+ipcMain.handle('exit-app', () => app.quit());
+ipcMain.handle('restart-app', () => { app.relaunch(); app.exit(0); });
+
+ipcMain.handle('set-view', async (event, view) => {
+  if (!mainWindow) return false;
+  mainWindow.webContents.send('set-view', view);
+  return true;
+});
+
+ipcMain.handle('set-email', async (event, email) => {
+  try {
+    setAuthState({ credentials: { email } });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-email', async () => {
+  const authState = getAuthState();
+  return authState.credentials?.email || null;
+});
+
+ipcMain.handle('get-licence-from-localstorage', async (event, licence) => licence || '');
+
+ipcMain.handle('import-database', async (event, fileContent) => {
+  try {
+    const dbDir = app.getPath('userData');
+    if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+    const targetPath = path.join(dbDir, 'adatok.xlsx');
+    fs.writeFileSync(targetPath, Buffer.from(fileContent));
+    return { success: true, path: targetPath };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 
@@ -3046,229 +1467,139 @@ ipcMain.handle('copy-image-to-exe-root', async () => {
     const src = path.join(process.resourcesPath, 'app', 'signature.png');
     const exeDir = path.dirname(app.getPath('exe'));
     const dest = path.join(exeDir, 'signature.png');
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, dest);
-    }
+    if (fs.existsSync(src)) fs.copyFileSync(src, dest);
     return true;
   } catch (e) {
-    console.error('Hiba a signature.png másolásakor az exe mellé:', e);
+    console.error('Hiba a signature.png másolásakor:', e);
     return false;
   }
 });
 
-ipcMain.handle('getSignatureImageFileUrl', async () => {
-  try {
-    if (!settings.signatureImage) return '';
-    // Ha abszolút útvonal, akkor azt használjuk, különben __dirname-ből számoljuk
-    let absPath = settings.signatureImage;
-    if (!path.isAbsolute(absPath)) {
-      absPath = path.join(__dirname, settings.signatureImage);
-    }
-    if (!fs.existsSync(absPath)) return '';
-    // file:// URL-t adunk vissza
-    return 'file://' + absPath.replace(/\\/g, '/');
-  } catch (e) {
-    return '';
-  }
-});
-
-ipcMain.handle('check-internet', async () => {
-  try {
-    return await checkInternetConnection();
-  } catch {
-    return false;
-  }
-});
-
-// Példa: signature.png feltöltésekor a mappa létrehozása, ha nem létezik
-ipcMain.handle('upload-signature-image', async (event, fileContent) => {
-  try {
-    const imagesDir = path.join(app.getPath('userData'), 'images');
-    if (!fs.existsSync(imagesDir)) {
-      fs.mkdirSync(imagesDir, { recursive: true });
-    }
-    const targetPath = path.join(imagesDir, 'signature.png');
-    fs.writeFileSync(targetPath, Buffer.from(fileContent));
-    settings.signatureImage = targetPath;
-    saveSettings(settings);
-    return { success: true, path: targetPath };
-  } catch (error) {
-    console.error('Hiba a signature kép feltöltésekor:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Példa: adatbázis importálásakor a mappa létrehozása, ha nem létezik
-ipcMain.handle('import-database', async (event, fileContent) => {
-  try {
-    const dbDir = app.getPath('userData');
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-    }
-    const targetPath = path.join(dbDir, 'adatok.xlsx');
-    fs.writeFileSync(targetPath, Buffer.from(fileContent));
-    return { success: true, path: targetPath };
-  } catch (error) {
-    console.error('Hiba az adatbázis importálásakor:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-function appendSentEmailLog(entry) {
-  try {
-    const sentPath = findFile('sentEmailsLog.json');
-    let log = [];
-    if (fs.existsSync(sentPath)) {
-      log = JSON.parse(fs.readFileSync(sentPath, 'utf-8'));
-    }
-    log.push(entry);
-    // Csak az utolsó 500 rekordot tartsuk meg
-    if (log.length > 500) log = log.slice(-500);
-    fs.writeFileSync(sentPath, JSON.stringify(log, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Hiba a sentEmailsLog.json írásakor:', err);
-  }
-
-}
-
-
-
-// Add IPC handlers for email storage
-ipcMain.handle('set-email', async (event, email) => {
-  try {
-    // Save email to a persistent storage (e.g., a file or database)
-    authState.credentials = { email };
-    saveAuthState();
-    return { success: true };
-  } catch (error) {
-    console.error('Error saving email:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-email', async () => {
-  try {
-    // Retrieve email from persistent storage
-    return authState.credentials?.email || null;
-  } catch (error) {
-    console.error('Error retrieving email:', error);
-    return null;
-  }
-});
-
-// Új változó az aktivációs email cím tárolására (in-memory, inicializálva a settingsből ha van)
-let activationEmail = settings.activationEmail || null;
-
-// Új IPC handler az aktivációs email cím beállítására (most mentjük is a settings-be)
-ipcMain.handle('set-activation-email', async (event, email) => {
-  activationEmail = email;
-  try {
-    settings.activationEmail = email;
-    saveSettings(settings);
-  } catch (e) {
-    console.error('[set-activation-email] Failed to save activationEmail to settings:', e);
-  }
-  console.log('Activation email set:', activationEmail);
-  return true;
-});
-
-// Új IPC handler az aktivációs email cím lekérdezésére (visszaadjuk a mentett értéket ha van)
-ipcMain.handle('get-activation-email', async () => {
-  return settings.activationEmail || activationEmail || null;
-});
-
-// Logging
-const logFilePath = path.join(app.getPath('userData'), 'app.log');
-
-if (!fs.existsSync(app.getPath('userData'))) {
-  fs.mkdirSync(app.getPath('userData'), { recursive: true });
-}
-
-function logToFile(message) {
-  const timestamp = new Date().toISOString();
-  fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`);
-}
-
+ipcMain.on('open-external', (event, url) => shell.openExternal(url));
 ipcMain.on('log', (event, message) => {
   console.log(`[Renderer Log]: ${message}`);
   logToFile(`[Renderer Log]: ${message}`);
 });
 
-function readSentEmailsLog() {
-  try {
-    const sentPath = findFile('sentEmailsLog.json');
-    if (fs.existsSync(sentPath)) {
-      return JSON.parse(fs.readFileSync(sentPath, 'utf-8'));
-    }
-    return [];
-  } catch (err) {
-    console.error('[readSentEmailsLog] Error reading sentEmailsLog.json:', err);
-    return [];
+// =============================================================================
+// WINDOW & APP LIFECYCLE
+// =============================================================================
+
+function createWindow() {
+  const settings = getSettings();
+  
+  mainWindow = new BrowserWindow({
+    width: 1300,
+    height: 1080,
+    autoHideMenuBar: true,
+    minWidth: 1300,
+    minHeight: 750,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    },
+    icon: path.join(__dirname, 'assets', 'icon.ico')
+  });
+
+  if (settings.displayMode === "fullscreen") {
+    mainWindow.maximize();
   }
+
+  mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
+
+  checkInternetConnection().then(hasInternet => {
+    if (!hasInternet) {
+      mainWindow.webContents.once('did-finish-load', () => {
+        mainWindow.webContents.send('no-internet-connection');
+      });
+    }
+  });
 }
 
-// IPC handler to check licence activation
-ipcMain.handle('is-licence-activated', async (event, payload) => {
-  const { email, licenceKey } = payload || {};
-  let connection;
-  try {
-    connection = await createDbConnectionWithFallback();
-    const [rows] = await connection.execute(
-      'SELECT licenceActivated FROM user WHERE email = ? AND licence = ? LIMIT 1',
-      [email, licenceKey]
-    );
+app.whenReady().then(async () => {
+  loadAuthState();
+  createWindow();
+  startInternetMonitoring();
+  
+  const authState = getAuthState();
+  console.log('Initial auth state:', authState);
 
-    if (!rows || rows.length === 0) {
-      // No matching record -> return false (not activated / invalid)
-      return false;
+  autoUpdater.checkForUpdatesAndNotify();
+
+  autoUpdater.on('update-available', () => {
+    console.log('Frissítés elérhető!');
+    if (mainWindow) mainWindow.webContents.send('update-ava');
+  });
+
+  autoUpdater.on('download-progress', (progressTrack) => {
+    console.log(`Frissítés letöltése: ${progressTrack.percent}%`);
+    if (mainWindow) mainWindow.webContents.send('update-download-progress', progressTrack.percent);
+  });
+
+  autoUpdater.on('update-downloaded', () => {
+    console.log('Frissítés letöltve!');
+    if (mainWindow) mainWindow.webContents.send('update-ready');
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('Frissítési hiba:', err);
+    if (mainWindow) {
+      mainWindow.webContents.send('update-error', err.message);
+      dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Frissítési hiba',
+        message: `Hiba történt a frissítés során: ${err.message}`,
+        buttons: ['OK']
+      });
     }
+  });
 
-    const activated = Number(rows[0].licenceActivated) === 1;
-    return activated;
-  } catch (error) {
-    console.error('Error checking licence activation:', error);
-    // On error, return true to be safe and block activation
-    return true;
-  } finally {
-    try { if (connection) await connection.end(); } catch (e) {}
+  if (authState.isAuthenticated) {
+    try {
+      if (authState.provider === 'gmail') {
+        if (fs.existsSync(TOKEN_PATH)) {
+          await authorize();
+          startEmailMonitoring();
+        } else {
+          setAuthState({ isAuthenticated: false });
+        }
+      } else if (authState.provider === 'smtp' && authState.credentials) {
+        console.log('Reconnecting to SMTP...');
+        smtpHandler = new SmtpEmailHandler(authState.credentials);
+        try {
+          smtpHandler.setOnMailCallback(() => checkEmailsOnce().catch(err => console.error('Error in onMail check:', err)));
+        } catch (e) {
+          console.warn('Could not set onMail callback:', e);
+        }
+        const success = await smtpHandler.connect();
+        if (success) {
+          console.log('SMTP reconnection successful');
+          // Start IDLE monitoring for real-time new mail notifications
+          try {
+            await smtpHandler.startIdleMonitoring();
+            console.log('SMTP IDLE monitoring started');
+          } catch (idleErr) {
+            console.warn('Could not start IDLE monitoring:', idleErr);
+          }
+          startEmailMonitoring();
+        } else {
+          console.log('SMTP reconnection failed');
+          setAuthState({ isAuthenticated: false });
+        }
+      }
+    } catch (error) {
+      console.error('Hiba az újracsatlakozás során:', error);
+      setAuthState({ isAuthenticated: false });
+    }
   }
 });
 
-// IPC to perform the actual activation (set licenceActivated = 1)
-ipcMain.handle('activate-licence', async (event, payload) => {
-  const { email, licenceKey } = payload || {};
-  let connection;
-  try {
-    connection = await createDbConnectionWithFallback();
-    const [result] = await connection.execute(
-      'UPDATE user SET licenceActivated = 1, TrialEndDate = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE email = ? AND licence = ?',
-      [email, licenceKey]
-    );
-    // result.affectedRows can indicate success
-    const success = result && (result.affectedRows === undefined ? true : result.affectedRows > 0);
-    return { success };
-  } catch (err) {
-    console.error('Error activating licence:', err);
-    return { success: false, error: 'Adatbázis hiba.' };
-  } finally {
-    try { if (connection) await connection.end(); } catch (e) {}
-  }
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.handle('set-view', async (event, view) => {
-  if (!mainWindow) {
-    console.error('mainWindow is not initialized');
-    return false;
-  }
-
-  mainWindow.webContents.send('set-view', view);
-  return true;
-});
-
-ipcMain.handle('read-generated-replies', async () => {
-  return readGeneratedReplies();
-});
-
-ipcMain.handle('save-generated-replies', async (event, replies) => {
-  saveGeneratedReplies(replies);
+app.on('before-quit', () => {
+  stopEmailMonitoring();
+  stopInternetMonitoring();
 });

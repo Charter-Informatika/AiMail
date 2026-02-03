@@ -9,6 +9,13 @@ import mammoth from 'mammoth';
 import kbManager from './kb-manager.js';
 import { createAndStoreEmbeddingsForLongText } from './embeddings-helper.js';
 
+// Cache configuration
+const FETCH_CONFIG = {
+  minFetchInterval: 30000, 
+  metadataOnlyInterval: 10000, 
+  maxCacheAge: 300000,
+};
+
 class SmtpEmailHandler {
   constructor(config) {
     this.config = config;
@@ -18,8 +25,52 @@ class SmtpEmailHandler {
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.keepaliveInterval = null;
-    // Callback invoked when IMAP reports new mail (imap 'mail' event)
     this.onMailCallback = null;
+    
+    // Email caching to reduce IMAP fetches
+    this._emailCache = new Map(); 
+    this._lastFetchTime = 0;
+    this._lastFullFetchTime = 0;
+    this._cachedIds = new Set();
+    this._fetchInProgress = false;
+  }
+  
+  /**
+   * Check if enough time has passed since last fetch
+   * @param {boolean} metadataOnly - Use shorter interval for metadata checks
+   * @returns {boolean}
+   */
+  _canFetch(metadataOnly = false) {
+    const now = Date.now();
+    const interval = metadataOnly ? FETCH_CONFIG.metadataOnlyInterval : FETCH_CONFIG.minFetchInterval;
+    return (now - this._lastFetchTime) >= interval;
+  }
+  
+  /**
+   * Check if cache is stale and needs full refresh
+   * @returns {boolean}
+   */
+  _isCacheStale() {
+    return (Date.now() - this._lastFullFetchTime) >= FETCH_CONFIG.maxCacheAge;
+  }
+  
+  /**
+   * Get cached emails without fetching
+   * @returns {Array}
+   */
+  getCachedEmails() {
+    return Array.from(this._emailCache.values());
+  }
+  
+  /**
+   * Clear the email cache
+   */
+  clearCache() {
+    this._emailCache.clear();
+    this._cachedIds.clear();
+    this._lastFetchTime = 0;
+    this._lastFullFetchTime = 0;
+    console.log('[SmtpEmailHandler] Cache cleared');
   }
 
   async connect() {
@@ -33,7 +84,6 @@ class SmtpEmailHandler {
         }
       });
 
-      // Use standard SMTP authentication
       this.transporter = nodemailer.createTransport({
         host: this.config.smtpHost,
         port: this.config.smtpPort,
@@ -206,6 +256,58 @@ class SmtpEmailHandler {
   setOnMailCallback(cb) {
     this.onMailCallback = cb;
   }
+  
+  /**
+   * Start IDLE monitoring - opens INBOX and keeps it open to receive 'mail' events
+   * This is more efficient than polling as it uses IMAP IDLE command
+   * @returns {Promise<void>}
+   */
+  async startIdleMonitoring() {
+    if (!this.imap) {
+      console.error('[SmtpEmailHandler] Cannot start IDLE: no IMAP connection');
+      return;
+    }
+    
+    return new Promise((resolve, reject) => {
+      const openAndIdle = () => {
+        this.imap.openBox('INBOX', false, (err) => {
+          if (err) {
+            console.error('[SmtpEmailHandler] Failed to open INBOX for IDLE:', err);
+            return reject(err);
+          }
+          console.log('[SmtpEmailHandler] INBOX opened for IDLE monitoring');
+          // The connection is now in IDLE mode (with keepalive: true)
+          // 'mail' events will be triggered when new emails arrive
+          resolve();
+        });
+      };
+      
+      if (this.imap.state === 'authenticated' || this.imap.state === 'selected' || this.imap.state === 'connected') {
+        openAndIdle();
+      } else {
+        this.imap.once('ready', openAndIdle);
+        this.imap.once('error', reject);
+        if (this.imap.state === 'disconnected') {
+          this.imap.connect();
+        }
+      }
+    });
+  }
+  
+  /**
+   * Get cache statistics
+   * @returns {Object}
+   */
+  getCacheStats() {
+    return {
+      cachedCount: this._emailCache.size,
+      lastFetchTime: this._lastFetchTime,
+      lastFullFetchTime: this._lastFullFetchTime,
+      cacheAge: Date.now() - this._lastFetchTime,
+      isStale: this._isCacheStale(),
+      canFetch: this._canFetch()
+    };
+  }
 
   async handleDisconnect() {
     if (this.isReconnecting) return;
@@ -276,38 +378,97 @@ class SmtpEmailHandler {
     });
   }
 
-  async getUnreadEmails() {
+  /**
+   * Get unread emails with caching and throttling
+   * @param {Object} options - Options object
+   * @param {boolean} options.forceRefresh - Force a fresh fetch ignoring cache
+   * @param {boolean} options.metadataOnly - Only fetch metadata (faster)
+   * @returns {Promise<Array>}
+   */
+  async getUnreadEmails(options = {}) {
+    const { forceRefresh = false, metadataOnly = false } = options;
+    
+    // Return cached emails if fetch is not allowed and not forcing refresh
+    if (!forceRefresh && !this._canFetch(metadataOnly) && this._emailCache.size > 0) {
+      console.log('[SmtpEmailHandler] Returning cached emails (throttled)');
+      return this.getCachedEmails().filter(e => !e._isRead);
+    }
+    
+    // Prevent concurrent fetches
+    if (this._fetchInProgress) {
+      console.log('[SmtpEmailHandler] Fetch already in progress, returning cached');
+      return this.getCachedEmails().filter(e => !e._isRead);
+    }
+    
+    this._fetchInProgress = true;
+    
     return new Promise((resolve, reject) => {
       try {
         if (!this.imap) {
+          this._fetchInProgress = false;
           return reject(new Error('IMAP connection is not established.'));
         }
         const emails = [];
-        const parsePromises = []; // ÚJ
+        const parsePromises = [];
 
         const openInbox = (cb) => {
           this.imap.openBox('INBOX', false, (err) => {
-            if (err) return reject(err);
+            if (err) {
+              this._fetchInProgress = false;
+              return reject(err);
+            }
             cb();
           });
         };
 
         const processMailbox = () => {
           this.imap.search(['UNSEEN'], (err, results) => {
-            if (err) return reject(err);
+            if (err) {
+              this._fetchInProgress = false;
+              return reject(err);
+            }
 
             if (!results.length) {
+              this._lastFetchTime = Date.now();
+              this._fetchInProgress = false;
               return resolve([]);
             }
 
             const limited = results.slice(-50);
+            
+            // Check which emails we already have cached
+            const cachedIds = new Set([...this._cachedIds].map(id => String(id)));
+            const newIds = limited.filter(id => !cachedIds.has(String(id)));
+            const cachedEmails = limited
+              .filter(id => cachedIds.has(String(id)))
+              .map(id => this._emailCache.get(String(id)))
+              .filter(Boolean);
+            
+            // If all emails are cached and cache is not stale, return cached
+            if (newIds.length === 0 && !this._isCacheStale() && !forceRefresh) {
+              console.log('[SmtpEmailHandler] All emails cached, returning cached data');
+              this._lastFetchTime = Date.now();
+              this._fetchInProgress = false;
+              return resolve(cachedEmails);
+            }
+            
+            // Fetch only new emails (or all if cache is stale)
+            const idsToFetch = (this._isCacheStale() || forceRefresh) ? limited : newIds;
+            
+            if (idsToFetch.length === 0) {
+              this._lastFetchTime = Date.now();
+              this._fetchInProgress = false;
+              return resolve(cachedEmails);
+            }
+            
+            console.log(`[SmtpEmailHandler] Fetching ${idsToFetch.length} emails (${newIds.length} new, ${cachedEmails.length} cached)`);
 
-            const f = this.imap.fetch(limited, {
-              bodies: '',
-              struct: true,
-              markSeen: false,
-              uid: true              // LEGYEN EGYÉRTELMŰ
-            });
+            // Use HEADER.FIELDS for metadata-only fetch, full body otherwise
+            const fetchOptions = metadataOnly 
+              ? { bodies: 'HEADER.FIELDS (FROM SUBJECT DATE)', struct: false, markSeen: false, uid: true }
+              : { bodies: '', struct: true, markSeen: false, uid: true };
+
+            const f = this.imap.fetch(idsToFetch, fetchOptions);
 
             f.on('message', (msg) => {
               let raw = '';
@@ -324,7 +485,7 @@ class SmtpEmailHandler {
               msg.once('end', () => {
                 const p = simpleParser(raw)
                   .then(parsed => {
-                    emails.push({
+                    const email = {
                       id: uid,
                       from: parsed.from?.text || '',
                       subject: parsed.subject || '',
@@ -332,21 +493,42 @@ class SmtpEmailHandler {
                       body: parsed.text || '',
                       html: parsed.html || null,
                       text: parsed.text || '',
-                      snippet: (parsed.text || '').slice(0, 100)
-                    });
+                      snippet: (parsed.text || '').slice(0, 100),
+                      _cachedAt: Date.now()
+                    };
+                    emails.push(email);
+                    // Update cache
+                    this._emailCache.set(String(uid), email);
+                    this._cachedIds.add(String(uid));
                   })
                   .catch(e => console.error('Mail parse hiba (unread):', e));
                 parsePromises.push(p);
               });
             });
 
-            f.once('error', err => reject(err));
+            f.once('error', err => {
+              this._fetchInProgress = false;
+              reject(err);
+            });
+            
             f.once('end', async () => {
               try {
-                await Promise.all(parsePromises); // VÁRUNK MINDEN PARSINGRA
-                emails.sort((a, b) => new Date(b.date) - new Date(a.date));
-                resolve(emails);
+                await Promise.all(parsePromises);
+                
+                // Merge newly fetched with cached
+                const allEmails = [...emails, ...cachedEmails];
+                allEmails.sort((a, b) => new Date(b.date) - new Date(a.date));
+                
+                // Update fetch timestamps
+                this._lastFetchTime = Date.now();
+                if (!metadataOnly) {
+                  this._lastFullFetchTime = Date.now();
+                }
+                
+                this._fetchInProgress = false;
+                resolve(allEmails);
               } catch (e) {
+                this._fetchInProgress = false;
                 reject(e);
               }
             });

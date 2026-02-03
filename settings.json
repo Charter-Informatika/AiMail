@@ -15,7 +15,7 @@
   "notifyOnAutoReply": false,
   "notificationEmail": "",
   "webUrls": [],
-  "halfAutoSend": false,
   "activationEmail": "",
+  "halfAutoSend": false,
   "fromDate": "2026-01-27"
 }

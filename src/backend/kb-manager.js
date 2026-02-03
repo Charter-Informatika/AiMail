@@ -5,13 +5,7 @@ import { OpenAI } from 'openai';
 import { getSecret } from '../utils/keytarHelper.js';
 import { chunkText as losslessChunkText } from './embeddings-helper.js';
 
-// Simple file-based embeddings KB. Stores array of entries:
-// { id: `${msgId}-${chunkIndex}`, docId: msgId, chunkIndex, text, subject, from, date, embedding }
-
 const KB_FILENAME = path.join(app.getPath('userData'), 'embeddings_kb.json');
-// Use a chunk size that aims to maximize per-chunk context while staying
-// comfortably within typical embedding token limits. This value is in
-// characters (conservative char->token heuristic: ~4 chars/token).
 const DEFAULT_CHUNK_CHARS = 16000;
 const BATCH_EMBED_SIZE = 100;
 const LOG_FILENAME = path.join(app.getPath('userData'), 'kb_manager.log');
@@ -21,7 +15,6 @@ function appendLog(line) {
     const ts = new Date().toISOString();
     fs.appendFileSync(LOG_FILENAME, `[${ts}] ${line}\n`, 'utf8');
   } catch (e) {
-    // fallback to console if file write fails
     console.log('[kb-manager][log-fallback]', line);
   }
 }
@@ -52,9 +45,6 @@ function saveKB(kb) {
   }
 }
 
-// Use centralized lossless chunker from embeddings-helper to avoid data loss.
-// `losslessChunkText` returns array of { text, start, end } objects.
-
 function cosine(a, b) {
   if (!a || !b || a.length !== b.length) return 0;
   let dot = 0, na = 0, nb = 0;
@@ -69,7 +59,6 @@ function cosine(a, b) {
 
 async function addEmails(emails = []) {
   if (!Array.isArray(emails) || emails.length === 0) return { added: 0 };
-  // Quick kill-switch: read settings.json and respect enableKB flag
   try {
     const settingsPath = path.resolve(process.cwd(), 'settings.json');
     if (fs.existsSync(settingsPath)) {
@@ -88,12 +77,9 @@ async function addEmails(emails = []) {
 
   const toEmbed = [];
   for (const em of emails) {
-    // Prefer stable identifiers: id (Gmail), uid (IMAP), messageId header, fallback to deterministic hash
     let msgId = em.id || em.uid || em.messageId || null;
     if (!msgId) {
-      // deterministic fallback from from+subject+date
       const seed = `${em.from || ''}||${em.subject || ''}||${em.date || ''}`;
-      // simple hash
       let h = 0;
       for (let i = 0; i < seed.length; i++) {
         h = ((h << 5) - h) + seed.charCodeAt(i);
@@ -107,7 +93,6 @@ async function addEmails(emails = []) {
   const from = em.from || '';
   const date = em.date || '';
   const body = em.body || em.text || '';
-  // Optional cell-level metadata (sheet name, column letter, row number, full cellAddress)
   const sheet = em.sheet || null;
   const colLetter = em.colLetter || em.column || null;
   const row = (typeof em.row === 'number' || (em.row && !isNaN(Number(em.row)))) ? Number(em.row) : null;
@@ -127,12 +112,7 @@ async function addEmails(emails = []) {
 
   if (!toEmbed.length) return { added: 0 };
 
-  // Safety guard: previously this limited new chunks to 200 to avoid accidental
-  // huge costs. Users may want to embed larger volumes; increase the cap
-  // substantially to avoid losing data while still protecting against truly
-  // unbounded runs. If you prefer no cap, set this to a very large number or
-  // make it configurable via settings.
-  const MAX_NEW_CHUNKS = 10000; // increased cap to keep more chunks
+  const MAX_NEW_CHUNKS = 10000; 
   if (toEmbed.length > MAX_NEW_CHUNKS) {
     console.warn(`[kb-manager] Large number of new chunks to embed: ${toEmbed.length}. Limiting to first ${MAX_NEW_CHUNKS} to avoid excessive cost.`);
   }
@@ -145,16 +125,11 @@ async function addEmails(emails = []) {
     appendLog(`OpenAI init failed: ${e && e.message ? e.message : e}`);
     return { added: 0, error: 'OpenAI init failed' };
   }
-  // Batch embed
+
   const embeddings = [];
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < Math.min(toEmbed.length, MAX_NEW_CHUNKS); i += BATCH_EMBED_SIZE) {
     const slice = toEmbed.slice(i, i + BATCH_EMBED_SIZE);
-    // Send the full chunk text as embedding input. We generate chunks earlier
-    // with `chunkText` (DEFAULT_CHUNK_CHARS), so no additional hard truncation
-    // is necessary here. Try a batch call first; if the batch call fails (for
-    // example due to very large inputs), fall back to per-entry embedding and
-    // then to sub-chunk embedding + averaging so we don't lose data.
     const inputs = slice.map(s => String(s.text));
     let attempt = 0;
     const maxAttempts = 4;
@@ -177,12 +152,10 @@ async function addEmails(emails = []) {
         console.error('[kb-manager] embed batch error (attempt', attempt, '):', err && err.message ? err.message : err);
         appendLog(`embed batch error attempt ${attempt}: ${err && err.message ? err.message : err}`);
         if (attempt >= maxAttempts) {
-          // Fall back to per-item embedding with further sub-chunking if needed
           appendLog(`Falling back to per-item embeddings for batch starting at ${i}`);
           for (let j = 0; j < slice.length; j++) {
             const entry = slice[j];
             try {
-              // Try embedding the full chunk for this entry
               const singleResp = await openai.embeddings.create({ model: 'text-embedding-3-small', input: String(entry.text) });
               const emb = singleResp && singleResp.data && singleResp.data[0] ? singleResp.data[0].embedding : null;
               if (emb) {
@@ -195,10 +168,8 @@ async function addEmails(emails = []) {
               appendLog(`single embed failed for ${entry.id}: ${singleErr && singleErr.message ? singleErr.message : singleErr}`);
             }
 
-            // If embedding the full chunk fails, split into smaller subchunks and
-            // compute embeddings for each subchunk, then average the vectors.
             try {
-              const SUB_CHUNK = 2000; // safe sub-chunk size
+              const SUB_CHUNK = 2000; 
               const partObjs = losslessChunkText(String(entry.text), SUB_CHUNK, Math.floor(SUB_CHUNK * 0.1));
               const subEmbeddings = [];
               for (let p = 0; p < partObjs.length; p += BATCH_EMBED_SIZE) {
@@ -209,7 +180,6 @@ async function addEmails(emails = []) {
                 await sleep(100);
               }
                 if (subEmbeddings.length) {
-                // average vectors
                 const len = subEmbeddings.length;
                 const out = new Array(subEmbeddings[0].length).fill(0);
                 for (const vec of subEmbeddings) {
