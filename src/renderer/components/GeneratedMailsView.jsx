@@ -1,23 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Button, IconButton, TextField } from '@mui/material';
+import React, { useState, useEffect, useRef } from 'react';
+import { Box, Typography, Paper, Button, IconButton, TextField, LinearProgress } from '@mui/material';
 import { FaArrowCircleRight } from "react-icons/fa";
 import CenteredLoading from './CenteredLoading';
 
 const GeneratedMailsView = ({ showSnackbar }) => {
-  const [halfAutoEnabled, setHalfAutoEnabled] = useState(null); // Initially null to indicate loading state
+  const [halfAutoEnabled, setHalfAutoEnabled] = useState(null); 
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generatedReplies, setGeneratedReplies] = useState({});
   const [sending, setSending] = useState(false);
   const [repliesGenerated, setRepliesGenerated] = useState(false);
-  const [repliedEmailIds, setRepliedEmailIds] = useState([]); // IDs of already replied emails
-  const [savingIds, setSavingIds] = useState([]); // track which replies are being saved
+  const [repliedEmailIds, setRepliedEmailIds] = useState([]); 
+  const [savingIds, setSavingIds] = useState([]); 
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [fullEmail, setFullEmail] = useState(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [search, setSearch] = useState('');
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
+  const [generationStarted, setGenerationStarted] = useState(false); 
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 }); 
+  const [isGenerating, setIsGenerating] = useState(false); 
+  const abortRef = useRef(false); 
 
   useEffect(() => {
     window.api.getHalfAutoSend()
@@ -26,17 +30,16 @@ const GeneratedMailsView = ({ showSnackbar }) => {
       })
       .catch((err) => {
         console.error('Error fetching halfAutoEnabled state:', err);
-        setHalfAutoEnabled(false); // Default to false on error
+        setHalfAutoEnabled(false); 
       });
   }, []);
 
   useEffect(() => {
-    if (halfAutoEnabled === null || repliesGenerated) return; // Wait until halfAutoEnabled is loaded
+    if (halfAutoEnabled === null) return; 
 
     if (halfAutoEnabled) {
       setLoading(true);
 
-      // First load replied email ids and stored generated replies in parallel
       Promise.all([
         window.api.getRepliedEmailIds().catch(err => {
           console.warn('Could not fetch replied email ids, proceeding without:', err);
@@ -53,67 +56,120 @@ const GeneratedMailsView = ({ showSnackbar }) => {
         console.log('Replied email ids:', repliedIds);
         console.log('Stored replies fetched:', storedReplies);
 
-        // Filter out already replied emails
         const filteredEmails = Array.isArray(unreadData)
           ? unreadData.filter(e => !repliedIds.includes(e.id))
           : [];
 
         setRepliedEmailIds(Array.isArray(repliedIds) ? repliedIds : []);
         setEmails(filteredEmails);
-
-        // Prepare replies object (start from stored replies but only keep for current filtered emails)
-        const replies = { ...(storedReplies || {}) };
-
-        const replyPromises = filteredEmails.map(email => {
-          if (!replies[email.id]) {
-            console.log('Generating reply for email:', { id: email.id, subject: email.subject });
-            // Ensure full email body is fetched
-            return window.api.getEmailById(email.id)
-              .then(fullEmail => {
-                if (!fullEmail || !fullEmail.body) {
-                  console.warn('Full email missing body - using snippet as fallback for email id:', email.id);
-                  fullEmail = { ...email, body: email.snippet || '' };
-                }
-                return window.api.generateReply(fullEmail)
-                  .then(reply => {
-                    if (!reply || !reply.body) {
-                      console.warn('Generated reply body is undefined, using email body/snippet as fallback for email id:', email.id);
-                      reply = reply || {};
-                      reply.body = fullEmail.body || email.snippet || '';
-                      reply.subject = reply.subject || (`Re: ${email.subject || ''}`);
-                    } else {
-                      reply.subject = reply.subject || (`Re: ${email.subject || ''}`);
-                    }
-                    replies[email.id] = reply;
-                    return window.api.saveGeneratedReplies(replies).catch(err => {
-                      console.warn('Could not save generated replies:', err);
-                    });
-                  });
-              })
-              .catch(err => {
-                console.error('Error fetching full email or generating reply:', err);
-              });
-          }
-          return Promise.resolve();
-        });
-
-        Promise.all(replyPromises).then(() => {
-          setGeneratedReplies(replies);
-          setRepliesGenerated(true);
-          setLoading(false);
-        }).catch(err => {
-          console.error('Error during reply generation batch:', err);
-          setGeneratedReplies(replies);
-          setRepliesGenerated(true);
-          setLoading(false);
-        });
+        setGeneratedReplies(storedReplies || {});
+        setLoading(false);
       })
       .catch(err => {
         console.error('Error fetching unread emails or dependencies:', err);
         setLoading(false);
       });
     }
-  }, [halfAutoEnabled, repliesGenerated]);
+  }, [halfAutoEnabled]);
+
+  const handleStartGeneration = async () => {
+    if (isGenerating || emails.length === 0) return;
+    
+    setGenerationStarted(true);
+    setIsGenerating(true);
+    abortRef.current = false;
+
+    const emailsToGenerate = emails.filter(email => !generatedReplies[email.id]);
+    setGenerationProgress({ current: 0, total: emailsToGenerate.length });
+
+    if (emailsToGenerate.length === 0) {
+      setRepliesGenerated(true);
+      setIsGenerating(false);
+      showSnackbar && showSnackbar('Minden levél már elő van készítve!', 'info');
+      return;
+    }
+
+    const updatedReplies = { ...generatedReplies };
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < emailsToGenerate.length; i++) {
+      if (abortRef.current) {
+        console.log('Generation aborted by user');
+        break;
+      }
+
+      const email = emailsToGenerate[i];
+      setGenerationProgress({ current: i + 1, total: emailsToGenerate.length });
+
+      try {
+        console.log(`Generating reply ${i + 1}/${emailsToGenerate.length} for email:`, { id: email.id, subject: email.subject });
+        
+        let fullEmail;
+        try {
+          fullEmail = await window.api.getEmailById(email.id);
+          if (!fullEmail || !fullEmail.body) {
+            console.warn('Full email missing body - using snippet as fallback for email id:', email.id);
+            fullEmail = { ...email, body: email.snippet || '' };
+          }
+        } catch (fetchErr) {
+          console.warn('Could not fetch full email, using list data:', fetchErr);
+          fullEmail = { ...email, body: email.snippet || '' };
+        }
+
+        const reply = await Promise.race([
+          window.api.generateReply(fullEmail),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Generation timeout')), 120000)) // 2 min timeout
+        ]);
+
+        if (!reply || !reply.body) {
+          console.warn('Generated reply body is undefined, using fallback for email id:', email.id);
+          updatedReplies[email.id] = {
+            subject: `Re: ${email.subject || ''}`,
+            body: fullEmail.body || email.snippet || ''
+          };
+        } else {
+          updatedReplies[email.id] = {
+            subject: reply.subject || `Re: ${email.subject || ''}`,
+            body: reply.body
+          };
+        }
+
+        successCount++;
+
+        try {
+          await window.api.saveGeneratedReplies(updatedReplies);
+        } catch (saveErr) {
+          console.warn('Could not save generated replies:', saveErr);
+        }
+
+        setGeneratedReplies({ ...updatedReplies });
+
+      } catch (err) {
+        console.error(`Error generating reply for email ${email.id}:`, err);
+        errorCount++;
+g
+      }
+
+      if (i < emailsToGenerate.length - 1 && !abortRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    setRepliesGenerated(true);
+    setIsGenerating(false);
+    
+    if (errorCount > 0) {
+      showSnackbar && showSnackbar(`Előkészítés kész: ${successCount} sikeres, ${errorCount} sikertelen`, 'warning');
+    } else if (successCount > 0) {
+      showSnackbar && showSnackbar(`${successCount} levél sikeresen előkészítve!`, 'success');
+    }
+  };
+
+  const handleCancelGeneration = () => {
+    abortRef.current = true;
+    showSnackbar && showSnackbar('Előkészítés megszakítva', 'info');
+  };
 
   const handleSendAllReplies = () => {
     setSending(true);
@@ -134,7 +190,6 @@ const GeneratedMailsView = ({ showSnackbar }) => {
     Promise.all(promises)
       .then(() => {
         setSending(false);
-        // Optionally refresh list after sending: remove sent emails from view by fetching replied ids again
         window.api.getRepliedEmailIds().then(ids => {
           setRepliedEmailIds(ids || []);
           setEmails(prev => prev.filter(e => !ids.includes(e.id)));
@@ -154,12 +209,10 @@ const GeneratedMailsView = ({ showSnackbar }) => {
   const handleOpenEmail = (email) => {
     setSelectedEmail(email);
     setLoadingFull(true);
-    // fetch full email if available
     window.api.getEmailById(email.id)
       .then((data) => {
         const e = data || email;
         setFullEmail(e);
-        // preload reply content from generatedReplies or fallback
         const reply = generatedReplies[email.id] || {};
         setReplySubject(reply.subject || `Re: ${email.subject || ''}`);
         setReplyBody(reply.body || '');
@@ -190,7 +243,6 @@ const GeneratedMailsView = ({ showSnackbar }) => {
       const merged = { ...(stored || {}), ...(generatedReplies || {}) };
       merged[id] = { subject: replySubject, body: replyBody };
       return window.api.saveGeneratedReplies(merged).then(() => {
-        // update local state
         setGeneratedReplies(prev => ({ ...(prev || {}), [id]: { subject: replySubject, body: replyBody } }));
       });
     }).then(() => {
@@ -213,7 +265,6 @@ const GeneratedMailsView = ({ showSnackbar }) => {
       emailId: id
     }).then(() => {
       setSending(false);
-      // refresh replied ids and remove from view
       window.api.getRepliedEmailIds().then(ids => {
         setRepliedEmailIds(ids || []);
         setEmails(prev => prev.filter(e => !ids.includes(e.id)));
@@ -251,11 +302,11 @@ const GeneratedMailsView = ({ showSnackbar }) => {
       </Paper>
     );
   } else if (loading) {
-    return <CenteredLoading helperText={"Levelek előkészítése folyamatban, ez eltarthat néhány percig..."} />;
+    return <CenteredLoading helperText={"Levelek betöltése..."} />;
   } else if (emails.length === 0) {
     return (
       <Paper sx={{ p: 4,
-        maxHeight: '550px',
+        maxHeight: '900px',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column' }}>
@@ -277,7 +328,6 @@ const GeneratedMailsView = ({ showSnackbar }) => {
       </Paper>
     );
   } else {
-    // Determine if there is any prepared reply with a body for the filtered emails
     const filteredEmails = emails.filter(email => {
       const q = search.toLowerCase();
       const matches = (
@@ -293,7 +343,6 @@ const GeneratedMailsView = ({ showSnackbar }) => {
 
     const anyPrepared = filteredEmails.some(e => generatedReplies[e.id] && generatedReplies[e.id].body);
 
-    // If one is opened show a larger editor similar to MailsView
     if (selectedEmail) {
       return (
         <Paper sx={{ p: 4,
@@ -336,13 +385,55 @@ const GeneratedMailsView = ({ showSnackbar }) => {
 
     return (
       <Paper sx={{ p: 4,
-        maxHeight: '690px',
+        maxHeight: '900px',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column' }}>
         <Typography variant="h4" gutterBottom>
           Előkészített levelek
         </Typography>
+
+        {/* Progress bar during generation */}
+        {isGenerating && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Előkészítés folyamatban: {generationProgress.current} / {generationProgress.total}
+            </Typography>
+            <LinearProgress 
+              variant="determinate" 
+              value={generationProgress.total > 0 ? (generationProgress.current / generationProgress.total) * 100 : 0} 
+            />
+          </Box>
+        )}
+
+        {/* Generation button - shows when not all emails have replies */}
+        {(() => {
+          const emailsWithoutReply = filteredEmails.filter(e => !generatedReplies[e.id] || !generatedReplies[e.id].body);
+          if (emailsWithoutReply.length > 0) {
+            return (
+              <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleStartGeneration}
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? 'Előkészítés folyamatban...' : `Levelek előkészítése (${emailsWithoutReply.length} db)`}
+                </Button>
+                {isGenerating && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    onClick={handleCancelGeneration}
+                  >
+                    Megszakítás
+                  </Button>
+                )}
+              </Box>
+            );
+          }
+          return null;
+        })()}
 
         <TextField
           label="Keresés az előkészített levelekben"
@@ -379,7 +470,7 @@ const GeneratedMailsView = ({ showSnackbar }) => {
           color="primary"
           sx={{ mt: 2 }}
           onClick={handleSendAllReplies}
-          disabled={sending || !anyPrepared}
+          disabled={sending || !anyPrepared || isGenerating}
         >
           {sending ? 'Küldés folyamatban...' : 'Összes válasz elküldése'}
         </Button>

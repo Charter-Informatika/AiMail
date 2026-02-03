@@ -671,7 +671,7 @@ async function generateReply(email) {
     try {
       console.log('[generateReply] Trying Ollama local server...');
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 30000); 
       const promptForOllama = `${systemPrompt}\n\n${finalPrompt}`;
 
       const localResp = await fetch('http://192.168.88.12:11434/api/generate', {
@@ -689,19 +689,27 @@ async function generateReply(email) {
 
       if (localResp && localResp.ok) {
         const localData = await localResp.json();
-        if (typeof localData?.response === 'string') {
+        if (typeof localData?.response === 'string' && localData.response.trim().length > 0) {
           messageContent = localData.response;
-          console.log('[generateReply] Local Ollama responded.');
+          console.log('[generateReply] Local Ollama responded successfully.');
+        } else {
+          console.warn('[generateReply] Local Ollama returned empty response');
         }
+      } else {
+        console.warn('[generateReply] Local Ollama returned status:', localResp?.status);
       }
     } catch (localErr) {
-      console.warn('[generateReply] Local Ollama unavailable:', localErr?.message || localErr);
+      if (localErr?.name === 'AbortError') {
+        console.warn('[generateReply] Local Ollama timed out after 90 seconds');
+      } else {
+        console.warn('[generateReply] Local Ollama unavailable:', localErr?.message || localErr);
+      }
     }
 
     // OpenAI fallback
     if (!messageContent) {
       try {
-        console.log('[generateReply] Sending prompt to OpenAI...');
+        console.log('[generateReply] Ollama failed, falling back to OpenAI...');
         const completion = await openai.chat.completions.create({
           model: 'gpt-5-mini',
           messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: finalPrompt }],

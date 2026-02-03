@@ -1,9 +1,7 @@
 Fontos:
     - HA lefrissül az uj verzióra ne resetelje a sent emails.jsont, settings.json meg a többit!
-    - MInden ai folyamat elsődlegesen a helyi ai-t próbálja elérni
-    - HA sok az előkészített levél, akkor kidob generálás közben,
-    - Az előkészített levél oldalon legyen egy gomb hogy levelek előkészítése és csak utánna kerzdjen generálni a háttérben, (pllama ai nem müködik itt vmiéert)
-    - Lokális model optimalizálás
+    - Minden ai folyamat elsődlegesen a helyi ai-t próbálja elérni
+    - Újra generálás gomb az e
     - UI elcsúszások az AI tanítása résznél
     - UI design javítás
     - Levél szekezet view = Ai tanítás view 
