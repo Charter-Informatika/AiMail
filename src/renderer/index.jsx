@@ -1016,8 +1016,8 @@ const App = () => {
           </IconButton>
         </Box>
         {/*Balra igazított logó*/}
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', position: 'absolute', left: 32 }}>
-          <Typography variant="h5">Ai Mail</Typography>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', position: 'absolute', left: 15 }}>
+          <img src="logo.png" alt="Ai Mail" style={{ height: 36, objectFit: 'contain' }} />
           {userEmail && (
             <Typography variant="body2" sx={{ ml: 1, color: 'text.primary', fontWeight: 500, fontSize: '1.4rem' }}>
               {userEmail}

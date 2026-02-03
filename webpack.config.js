@@ -62,6 +62,7 @@ export default {
     new CopyWebpackPlugin({
       patterns: [
         { from: 'src/images/signature.png', to: '.' },
+        { from: 'src/images/logo.png', to: '.' },
       ],
     }),
   ],
