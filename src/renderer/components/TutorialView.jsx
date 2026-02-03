@@ -99,6 +99,13 @@ További információkért keresd fel a https://okosmail.hu weboldalt vagy nézd
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
+        minHeight: '100vh',
+        background: 'radial-gradient(ellipse at top, rgba(99, 102, 241, 0.1) 0%, transparent 50%)',
+        animation: 'fadeIn 0.5s ease forwards',
+        '@keyframes fadeIn': {
+          from: { opacity: 0 },
+          to: { opacity: 1 },
+        },
       }}
     >
       {/* Kihagyás gomb jobb felső sarokban */}
@@ -109,24 +116,35 @@ További információkért keresd fel a https://okosmail.hu weboldalt vagy nézd
           top: 24,
           right: 32,
           color: theme.palette.text.primary,
-          fontWeight: 'bold',
+          fontWeight: 600,
           fontSize: '1rem',
           zIndex: 2,
+          px: 3,
+          py: 1,
+          borderRadius: 2,
+          transition: 'all 0.2s ease',
+          '&:hover': {
+            background: 'rgba(99, 102, 241, 0.1)',
+            transform: 'translateX(4px)',
+          },
         }}
         onClick={handleChange}
       >
-        {reachedLastPage ? "Tovább" : "Kihagyás"}
+        {reachedLastPage ? "Tovább →" : "Kihagyás →"}
       </Button>
 
       {/* Cím középen fent */}
       <Typography
-        variant="h4"
+        variant="h3"
         sx={{
-          mt: 4,
+          mt: 6,
           mb: 6,
           alignSelf: 'center',
-          fontWeight: 'bold',
-          letterSpacing: 1,
+          fontWeight: 700,
+          letterSpacing: '-0.02em',
+          background: 'linear-gradient(135deg, currentColor 0%, rgba(99, 102, 241, 0.8) 50%, rgba(168, 85, 247, 0.8) 100%)',
+          backgroundClip: 'text',
+          WebkitBackgroundClip: 'text',
         }}
       >
         Ai Mail útmutató
@@ -146,32 +164,47 @@ További információkért keresd fel a https://okosmail.hu weboldalt vagy nézd
           onClick={handlePrev}
           disabled={page === 0}
           sx={{
-            mr: 2,
-            height: 50,
+            mr: 3,
+            height: 56,
+            width: 56,
             alignSelf: 'center',
             opacity: page === 0 ? 0.3 : 1,
+            background: page === 0 ? 'transparent' : 'rgba(99, 102, 241, 0.1)',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              background: 'rgba(99, 102, 241, 0.2)',
+              transform: 'translateX(-4px)',
+            },
           }}
         >
-          <FaAngleLeft size={32} />
+          <FaAngleLeft size={28} />
         </IconButton>
 
         <Card
           variant="outlined"
           sx={{
             width: 900,
-            borderRadius: 2,
-            boxShadow: 3,
-            minHeight: 300,
+            borderRadius: 4,
+            minHeight: 320,
             maxHeight: 500,
             display: 'flex',
             alignItems: 'center',
+            background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.08), rgba(24, 24, 27, 0.95))',
+            border: '1px solid rgba(99, 102, 241, 0.2)',
+            boxShadow: '0 8px 32px rgba(99, 102, 241, 0.15)',
+            transition: 'all 0.3s ease',
+            animation: 'scaleIn 0.4s ease forwards',
+            '@keyframes scaleIn': {
+              from: { opacity: 0, transform: 'scale(0.98)' },
+              to: { opacity: 1, transform: 'scale(1)' },
+            },
           }}
         >
-          <CardContent>
+          <CardContent sx={{ p: 5 }}>
             <Box
               sx={{
-                fontSize: '1.2rem',
-                lineHeight: 1.7,
+                fontSize: '1.15rem',
+                lineHeight: 1.8,
                 '& ul': { pl: 3, mb: 1 },
                 '& ol': { pl: 3, mb: 1 },
                 '& li': { mb: 0.5 },
@@ -188,31 +221,39 @@ További információkért keresd fel a https://okosmail.hu weboldalt vagy nézd
           onClick={handleNext}
           disabled={page === pages.length - 1}
           sx={{
-            ml: 2,
-            height: 50,
+            ml: 3,
+            height: 56,
+            width: 56,
             alignSelf: 'center',
             opacity: page === pages.length - 1 ? 0.3 : 1,
+            background: page === pages.length - 1 ? 'transparent' : 'rgba(99, 102, 241, 0.1)',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              background: 'rgba(99, 102, 241, 0.2)',
+              transform: 'translateX(4px)',
+            },
           }}
         >
-          <FaAngleRight size={32} />
+          <FaAngleRight size={28} />
         </IconButton>
       </Box>
 
       {/* Oldal jelző pöttyök */}
-      <Box sx={{ display: 'flex', mt: 3, gap: 1 }}>
+      <Box sx={{ display: 'flex', mt: 4, gap: 1.5 }}>
         {pages.map((_, i) => (
           <Box
             key={i}
             onClick={() => setPage(i)}
             sx={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              backgroundColor: i === page ? 'primary.main' : 'grey.400',
-              border: i === page ? '2px solid #1976d2' : '1px solid #bdbdbd',
-              transition: 'background-color 0.2s',
+              width: i === page ? 28 : 10,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: i === page ? 'primary.main' : 'rgba(255, 255, 255, 0.3)',
+              transition: 'all 0.3s ease',
               cursor: i === page ? 'default' : 'pointer',
-              opacity: i === page ? 1 : 0.7,
+              '&:hover': {
+                backgroundColor: i === page ? 'primary.main' : 'rgba(255, 255, 255, 0.5)',
+              },
             }}
           />
         ))}

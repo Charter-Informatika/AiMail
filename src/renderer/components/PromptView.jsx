@@ -17,7 +17,21 @@ const PromptView = ({ showSnackbar }) => {
   const sectionWidth = '100%';
 
   // Shared styles for inner section Papers: fixed height and scroll when content overflows
-  const sectionPaperSx = { p: 4, bgcolor: '#181818', color: 'white', borderRadius: 1, boxShadow: '0 1px 6px rgba(0,0,0,0.6)', height: '470px', overflowY: 'auto' };
+  const sectionPaperSx = { 
+    p: 4, 
+    background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.08) 0%, rgba(30, 30, 40, 0.95) 100%)',
+    color: 'white', 
+    borderRadius: 3, 
+    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+    border: '1px solid rgba(99, 102, 241, 0.15)',
+    height: '470px', 
+    overflowY: 'auto',
+    animation: 'slideIn 0.3s ease forwards',
+    '@keyframes slideIn': {
+      from: { opacity: 0, transform: 'translateX(-10px)' },
+      to: { opacity: 1, transform: 'translateX(0)' },
+    },
+  };
 
   // Preview URL for images (when selecting before upload)
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState(null);
@@ -275,8 +289,46 @@ const PromptView = ({ showSnackbar }) => {
   if (loading) return <CenteredLoading />;
 
   return (
-    <Paper sx={{ p: 4, maxHeight: '85vh', height: '85vh', overflowY: 'auto' }}>
-      <Tabs value={section} onChange={(e, val) => setSection(val)} variant="standard" centered sx={{ mb: 2 }}>
+    <Paper sx={{ 
+      p: 4, 
+      maxHeight: '85vh', 
+      height: '85vh', 
+      overflowY: 'auto',
+      background: 'linear-gradient(135deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%)',
+      borderRadius: 3,
+      animation: 'fadeIn 0.4s ease forwards',
+      '@keyframes fadeIn': {
+        from: { opacity: 0, transform: 'translateY(8px)' },
+        to: { opacity: 1, transform: 'translateY(0)' },
+      },
+    }}>
+      <Tabs 
+        value={section} 
+        onChange={(e, val) => setSection(val)} 
+        variant="standard" 
+        centered 
+        sx={{ 
+          mb: 3,
+          '& .MuiTabs-indicator': {
+            height: 3,
+            borderRadius: 2,
+            background: 'linear-gradient(90deg, #6366f1, #a855f7)',
+          },
+          '& .MuiTab-root': {
+            fontWeight: 600,
+            textTransform: 'none',
+            fontSize: '0.95rem',
+            transition: 'all 0.2s ease',
+            '&.Mui-selected': {
+              color: '#a855f7',
+            },
+            '&:hover': {
+              color: '#6366f1',
+              transform: 'translateY(-1px)',
+            },
+          },
+        }}
+      >
         <Tab label="Megszólítás szövege" value="greeting" />
         <Tab label="Üdvözlés szövege" value="signature" />
         <Tab label="Aláírás" value="signatureText" />
@@ -295,7 +347,15 @@ const PromptView = ({ showSnackbar }) => {
                 variant="h6"
                 align="center"
                 gutterBottom
-                sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}
+                sx={{ 
+                  color: 'white', 
+                  fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' },
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}
               >
                 Megszólítás
               </Typography>
@@ -305,7 +365,15 @@ const PromptView = ({ showSnackbar }) => {
                 fullWidth
                 multiline
                 rows={8}
-                sx={{ mt: 2, '& .MuiInputBase-input': { fontSize: '1.25rem' }, '& .MuiInputLabel-root': { fontSize: '1.13rem' } }}
+                sx={{ 
+                  mt: 2, 
+                  '& .MuiInputBase-input': { fontSize: '1.25rem' }, 
+                  '& .MuiInputLabel-root': { fontSize: '1.13rem' },
+                  '& .MuiOutlinedInput-root': {
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    borderRadius: 2,
+                  },
+                }}
                 value={greeting}
                 onChange={e => setGreeting(e.target.value)}
                 disabled={loading}
@@ -317,14 +385,36 @@ const PromptView = ({ showSnackbar }) => {
 
           {section === 'signature' && (
             <Paper variant="outlined" sx={sectionPaperSx}>
-              <Typography variant="h6" align="center" gutterBottom sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}>Üdvözlés</Typography>
+              <Typography 
+                variant="h6" 
+                align="center" 
+                gutterBottom 
+                sx={{ 
+                  color: 'white', 
+                  fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' },
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}
+              >
+                Üdvözlés
+              </Typography>
               <TextField
                 label="Ide írhatja, milyen üdvözlés szerepeljen a levélben"
                 variant="outlined"
                 fullWidth
                 multiline
                 rows={8}
-                sx={{ mt: 2, '& .MuiInputBase-input': { fontSize: '1.25rem' } }}
+                sx={{ 
+                  mt: 2, 
+                  '& .MuiInputBase-input': { fontSize: '1.25rem' },
+                  '& .MuiOutlinedInput-root': {
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    borderRadius: 2,
+                  },
+                }}
                 value={signature}
                 onChange={e => setSignature(e.target.value)}
                 disabled={loading}
@@ -336,14 +426,36 @@ const PromptView = ({ showSnackbar }) => {
 
           {section === 'signatureText' && (
             <Paper variant="outlined" sx={sectionPaperSx}>
-              <Typography variant="h6" align="center" gutterBottom sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}>Aláírás</Typography>
+              <Typography 
+                variant="h6" 
+                align="center" 
+                gutterBottom 
+                sx={{ 
+                  color: 'white', 
+                  fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' },
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}
+              >
+                Aláírás
+              </Typography>
               <TextField
                 label="Itt szerkesztheti a levél aláírását"
                 variant="outlined"
                 fullWidth
                 multiline
                 rows={8}
-                sx={{ mt: 2, '& .MuiInputBase-input': { fontSize: '1.25rem' } }}
+                sx={{ 
+                  mt: 2, 
+                  '& .MuiInputBase-input': { fontSize: '1.25rem' },
+                  '& .MuiOutlinedInput-root': {
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    borderRadius: 2,
+                  },
+                }}
                 value={signatureText}
                 onChange={e => setSignatureText(e.target.value)}
                 disabled={loading}
@@ -355,7 +467,22 @@ const PromptView = ({ showSnackbar }) => {
 
           {section === 'signo' && (
             <Paper variant="outlined" sx={sectionPaperSx}>
-              <Typography variant="h6" align="center" gutterBottom sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}>Signo</Typography>
+              <Typography 
+                variant="h6" 
+                align="center" 
+                gutterBottom 
+                sx={{ 
+                  color: 'white', 
+                  fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' },
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #ec4899 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}
+              >
+                Signo
+              </Typography>
               <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3, mt: 2, alignItems: 'center', justifyContent: 'center' }}>
                 {/* Left column: controls */}
                 <Stack spacing={1.5} sx={{ width: '100%', maxWidth: 400 }}>
@@ -364,7 +491,22 @@ const PromptView = ({ showSnackbar }) => {
                     onClick={handleImgSelect}
                     disabled={loading}
                     size="medium"
-                    sx={{ width: '100%', py: 1, fontSize: '0.95rem', bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' } }}
+                    sx={{ 
+                      width: '100%', 
+                      py: 1, 
+                      fontSize: '0.95rem', 
+                      background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      borderRadius: 2,
+                      boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { 
+                        background: 'linear-gradient(135deg, #818cf8 0%, #c084fc 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(99, 102, 241, 0.4)',
+                      },
+                    }}
                   >
                     {loading ? <CircularProgress size={18} /> : 'Kép fájl kiválasztása'}
                   </Button>
@@ -374,7 +516,22 @@ const PromptView = ({ showSnackbar }) => {
                     onClick={handleImgDelete}
                     disabled={loading}
                     size="medium"
-                    sx={{ width: '100%', py: 1, fontSize: '0.95rem', bgcolor: '#d32f2f', '&:hover': { bgcolor: '#e05555' } }}
+                    sx={{ 
+                      width: '100%', 
+                      py: 1, 
+                      fontSize: '0.95rem', 
+                      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      borderRadius: 2,
+                      boxShadow: '0 4px 15px rgba(239, 68, 68, 0.3)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { 
+                        background: 'linear-gradient(135deg, #f87171 0%, #ef4444 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(239, 68, 68, 0.4)',
+                      },
+                    }}
                   >
                     {loading ? <CircularProgress size={18} /> : 'Kép törlése'}
                   </Button>
@@ -386,7 +543,12 @@ const PromptView = ({ showSnackbar }) => {
                   )}
 
                   {showConfirm && (
-                    <Paper sx={{ p: 2, bgcolor: '#222', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <Paper sx={{ 
+                      p: 2, 
+                      background: 'rgba(30, 30, 40, 0.9)',
+                      border: '1px solid rgba(168, 85, 247, 0.3)',
+                      borderRadius: 2,
+                    }}>
                       <Typography sx={{ mb: 1.5, fontSize: '0.95rem', textAlign: 'center' }}>
                         Figyelem! A feltöltés felülírja a meglévő signot. Biztosan szeretnéd folytatni?
                       </Typography>
@@ -396,7 +558,15 @@ const PromptView = ({ showSnackbar }) => {
                           onClick={handleConfirm}
                           disabled={loading}
                           size="medium"
-                          sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' }, fontSize: '0.95rem' }}
+                          sx={{ 
+                            background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                            color: '#fff',
+                            fontWeight: 600,
+                            fontSize: '0.95rem',
+                            '&:hover': { 
+                              background: 'linear-gradient(135deg, #4ade80 0%, #34d399 100%)',
+                            },
+                          }}
                         >
                           Feltöltés és felülírás
                         </Button>
@@ -405,7 +575,15 @@ const PromptView = ({ showSnackbar }) => {
                           onClick={handleCancel}
                           disabled={loading}
                           size="medium"
-                          sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.2)', fontSize: '0.95rem' }}
+                          sx={{ 
+                            color: 'white', 
+                            borderColor: 'rgba(255,255,255,0.3)', 
+                            fontSize: '0.95rem',
+                            '&:hover': {
+                              borderColor: 'rgba(255,255,255,0.5)',
+                              background: 'rgba(255,255,255,0.05)',
+                            },
+                          }}
                         >
                           Mégsem
                         </Button>
@@ -415,7 +593,23 @@ const PromptView = ({ showSnackbar }) => {
                 </Stack>
 
                 {/* Right column: preview */}
-                <Box sx={{ width: 280, height: 280, flexShrink: 0, bgcolor: '#222', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px dashed rgba(255,255,255,0.15)', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.6)' }}>
+                <Box sx={{ 
+                  width: 280, 
+                  height: 280, 
+                  flexShrink: 0, 
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  borderRadius: 3, 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  overflow: 'hidden', 
+                  border: '2px dashed rgba(168, 85, 247, 0.3)', 
+                  boxShadow: 'inset 0 0 40px rgba(0,0,0,0.6)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    borderColor: 'rgba(168, 85, 247, 0.5)',
+                  },
+                }}>
                   {signaturePreviewUrl || signatureImage ? (
                     <img
                       src={signaturePreviewUrl || signatureImage}
@@ -432,7 +626,22 @@ const PromptView = ({ showSnackbar }) => {
 
           {section === 'attachment' && (
             <Paper variant="outlined" sx={sectionPaperSx}>
-              <Typography variant="h6" align="center" gutterBottom sx={{ color: 'white', fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' } }}>Csatolmány</Typography>
+              <Typography 
+                variant="h6" 
+                align="center" 
+                gutterBottom 
+                sx={{ 
+                  color: 'white', 
+                  fontSize: { xs: '1.25rem', sm: '1.45rem', md: '1.56rem' },
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}
+              >
+                Csatolmány
+              </Typography>
               <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                 <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, alignItems: 'center', justifyContent: 'center' }}>
                   <input
@@ -443,7 +652,23 @@ const PromptView = ({ showSnackbar }) => {
                     disabled={attachmentUploading || loading}
                   />
                   <label htmlFor="attachment-input">
-                    <Button variant="contained" component="span" disabled={attachmentUploading || loading}>
+                    <Button 
+                      variant="contained" 
+                      component="span" 
+                      disabled={attachmentUploading || loading}
+                      sx={{
+                        background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                        color: '#fff',
+                        fontWeight: 600,
+                        borderRadius: 2,
+                        boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)',
+                        transition: 'all 0.2s ease',
+                        '&:hover': { 
+                          background: 'linear-gradient(135deg, #818cf8 0%, #c084fc 100%)',
+                          transform: 'translateY(-2px)',
+                        },
+                      }}
+                    >
                       Fájl kiválasztása
                     </Button>
                   </label>
@@ -452,6 +677,18 @@ const PromptView = ({ showSnackbar }) => {
                     color="primary"
                     onClick={handleAttachmentUpload}
                     disabled={!attachmentFile || attachmentUploading || loading}
+                    sx={{
+                      background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      borderRadius: 2,
+                      boxShadow: '0 4px 15px rgba(34, 197, 94, 0.3)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { 
+                        background: 'linear-gradient(135deg, #4ade80 0%, #34d399 100%)',
+                        transform: 'translateY(-2px)',
+                      },
+                    }}
                   >
                     {attachmentUploading ? <CircularProgress size={24} /> : 'Feltöltés'}
                   </Button>
@@ -464,22 +701,51 @@ const PromptView = ({ showSnackbar }) => {
               </Box>
 
               <Box sx={{ mt: 4 }}>
-                <Typography variant="subtitle1" sx={{ mb: 2, textAlign: 'center' }}>Feltöltött csatolmányok:</Typography>
+                <Typography variant="subtitle1" sx={{ mb: 2, textAlign: 'center', fontWeight: 600 }}>Feltöltött csatolmányok:</Typography>
                 {attachmentsLoading ? (
                   <CenteredLoading size={28} text={'Betöltés...'} />
                 ) : attachments.length === 0 ? (
-                  <Typography sx={{ textAlign: 'center' }}>Nincs csatolmány feltöltve.</Typography>
+                  <Typography sx={{ textAlign: 'center', color: 'rgba(255,255,255,0.6)' }}>Nincs csatolmány feltöltve.</Typography>
                 ) : (
                   <Box sx={{ maxWidth: 500, mx: 'auto' }}>
-                    {attachments.map((file) => (
-                      <Box key={file} sx={{ display: 'flex', alignItems: 'center', mb: 1, p: 1, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }}>
+                    {attachments.map((file, index) => (
+                      <Box 
+                        key={file} 
+                        sx={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          mb: 1, 
+                          p: 1.5, 
+                          background: 'rgba(6, 182, 212, 0.08)',
+                          border: '1px solid rgba(6, 182, 212, 0.15)',
+                          borderRadius: 2,
+                          animation: `fadeIn 0.3s ease forwards ${index * 0.1}s`,
+                          opacity: 0,
+                          transition: 'all 0.2s ease',
+                          '@keyframes fadeIn': {
+                            to: { opacity: 1 },
+                          },
+                          '&:hover': {
+                            background: 'rgba(6, 182, 212, 0.12)',
+                            transform: 'translateX(4px)',
+                          },
+                        }}
+                      >
                         <Typography sx={{ flex: 1, wordBreak: 'break-all' }}>{file}</Typography>
                         <Button
                           variant="outlined"
                           color="error"
                           size="small"
                           onClick={() => handleDeleteAttachment(file)}
-                          sx={{ ml: 2, flexShrink: 0 }}
+                          sx={{ 
+                            ml: 2, 
+                            flexShrink: 0,
+                            borderColor: 'rgba(239, 68, 68, 0.5)',
+                            '&:hover': {
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              borderColor: '#ef4444',
+                            },
+                          }}
                         >
                           Törlés
                         </Button>
@@ -492,7 +758,27 @@ const PromptView = ({ showSnackbar }) => {
           )}
 
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-            <Button variant="contained" color="primary" onClick={handleSave} disabled={saving || loading}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              onClick={handleSave} 
+              disabled={saving || loading}
+              sx={{
+                background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                color: '#fff',
+                fontWeight: 600,
+                borderRadius: 2,
+                px: 5,
+                py: 1.2,
+                boxShadow: '0 4px 15px rgba(34, 197, 94, 0.3)',
+                transition: 'all 0.2s ease',
+                '&:hover': { 
+                  background: 'linear-gradient(135deg, #4ade80 0%, #34d399 100%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 6px 20px rgba(34, 197, 94, 0.4)',
+                },
+              }}
+            >
               {saving ? 'Mentés...' : 'Mentés'}
             </Button>
           </Box>

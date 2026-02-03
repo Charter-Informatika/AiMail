@@ -388,11 +388,58 @@ const SettingsView = ({ themeName, setThemeName, onAutoSendChanged, onHalfAutoSe
 
   return (
     <>
-      <Paper sx={{ p: 3, height: '80vh', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
+      <Paper sx={{ 
+        p: 3, 
+        height: '80vh', 
+        width: '100%', 
+        boxSizing: 'border-box', 
+        overflow: 'hidden',
+        animation: 'fadeIn 0.4s ease forwards',
+        '@keyframes fadeIn': {
+          from: { opacity: 0, transform: 'translateY(12px)' },
+          to: { opacity: 1, transform: 'translateY(0)' },
+        },
+      }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', pr: 2, overflow: 'hidden' }}>
-          <Typography variant="h4" gutterBottom>Beállítások</Typography>
+          <Typography 
+            variant="h4" 
+            gutterBottom
+            sx={{
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, currentColor 0%, rgba(99, 102, 241, 0.8) 100%)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+            }}
+          >
+            Beállítások
+          </Typography>
 
-          <Tabs value={section} onChange={(e, val) => setSection(val)} variant="fullWidth" sx={{ mb: 2 }}>
+          <Tabs 
+            value={section} 
+            onChange={(e, val) => setSection(val)} 
+            variant="fullWidth" 
+            sx={{ 
+              mb: 3,
+              '& .MuiTab-root': {
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                textTransform: 'none',
+                transition: 'all 0.2s ease',
+                borderRadius: 2,
+                mx: 0.5,
+                '&:hover': {
+                  background: 'rgba(99, 102, 241, 0.1)',
+                },
+              },
+              '& .Mui-selected': {
+                background: 'rgba(99, 102, 241, 0.15)',
+              },
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: 2,
+              },
+            }}
+          >
             <Tab label="Kinézet" value="appearance" />
             <Tab label="Auto" value="autosend" />
             <Tab label="AI Levél" value="ai" />
@@ -403,28 +450,75 @@ const SettingsView = ({ themeName, setThemeName, onAutoSendChanged, onHalfAutoSe
             <Grid container spacing={3} sx={{ height: '100%', width: '100%', flex: 1 }}>
               {section === 'appearance' && (
                 <Grid item xs={12} sx={{ height: '100%', display: 'flex', justifyContent: 'center' }}>
-                  <Paper variant="outlined" sx={{ p: 3, height: '100%', width: sectionWidth, maxWidth: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto', flex: 'none', mx: 'auto' }}>
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 4, 
+                      height: '100%', 
+                      width: sectionWidth, 
+                      maxWidth: '100%', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      overflow: 'auto', 
+                      flex: 'none', 
+                      mx: 'auto',
+                      background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.05), rgba(24, 24, 27, 0.8))',
+                      border: '1px solid rgba(99, 102, 241, 0.15)',
+                      borderRadius: 3,
+                      animation: 'slideIn 0.3s ease forwards',
+                      '@keyframes slideIn': {
+                        from: { opacity: 0, transform: 'translateX(-12px)' },
+                        to: { opacity: 1, transform: 'translateX(0)' },
+                      },
+                    }}
+                  >
                     <Box sx={{ width: '100%' }}>
-                      <Typography variant="h6" gutterBottom align="center">Kinézet</Typography>
-                      <Divider sx={{ mb: 2 }} />
+                      <Typography variant="h6" gutterBottom align="center" sx={{ fontWeight: 600, mb: 3 }}>Kinézet</Typography>
+                      <Divider sx={{ mb: 3, opacity: 0.3 }} />
 
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="subtitle1">Megjelenítési mód</Typography>
+                      <Box sx={{ 
+                        mb: 4, 
+                        p: 3, 
+                        borderRadius: 2, 
+                        background: 'rgba(99, 102, 241, 0.05)',
+                        border: '1px solid rgba(99, 102, 241, 0.1)',
+                      }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Megjelenítési mód</Typography>
                         <RadioGroup value={displayMode} onChange={handleDisplayModeChange}>
                           <FormControlLabel value="windowed" control={<Radio />} label="Ablakos mód" />
                           <FormControlLabel value="fullscreen" control={<Radio />} label="Teljes képernyő" />
                         </RadioGroup>
-                        <Typography variant="body2" color="text.secondary">Válassza ki az alkalmazás megjelenítési módját. A változtatások azonnal életbe lépnek.</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Válassza ki az alkalmazás megjelenítési módját. A változtatások azonnal életbe lépnek.</Typography>
                       </Box>
 
-                      <Box>
-                        <Typography variant="subtitle1">Téma</Typography>
-                        <RadioGroup value={themeName} onChange={e => setThemeName(e.target.value)} row>
+                      <Box sx={{ 
+                        p: 3, 
+                        borderRadius: 2, 
+                        background: 'rgba(168, 85, 247, 0.05)',
+                        border: '1px solid rgba(168, 85, 247, 0.1)',
+                      }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Téma</Typography>
+                        <RadioGroup value={themeName} onChange={e => setThemeName(e.target.value)} row sx={{ flexWrap: 'wrap', gap: 1 }}>
                           {themeOptions.map(opt => (
-                            <FormControlLabel key={opt.value} value={opt.value} control={<Radio />} label={opt.label} />
+                            <FormControlLabel 
+                              key={opt.value} 
+                              value={opt.value} 
+                              control={<Radio />} 
+                              label={opt.label}
+                              sx={{
+                                m: 0,
+                                px: 2,
+                                py: 1,
+                                borderRadius: 2,
+                                transition: 'all 0.2s ease',
+                                '&:hover': {
+                                  background: 'rgba(168, 85, 247, 0.1)',
+                                },
+                              }}
+                            />
                           ))}
                         </RadioGroup>
-                        <Typography variant="body2" color="text.secondary">Válassza ki az alkalmazás színvilágát. A változtatás azonnal látszik.</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Válassza ki az alkalmazás színvilágát. A változtatás azonnal látszik.</Typography>
                       </Box>
                     </Box>
                   </Paper>
@@ -433,17 +527,60 @@ const SettingsView = ({ themeName, setThemeName, onAutoSendChanged, onHalfAutoSe
 
               {section === 'autosend' && (
                 <Grid item xs={12} sx={{ height: '100%', display: 'flex', justifyContent: 'center' }}>
-                  <Paper variant="outlined" sx={{ p: 3, height: '100%', width: sectionWidth, maxWidth: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto', flex: 'none', mx: 'auto' }}>
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 4, 
+                      height: '100%', 
+                      width: sectionWidth, 
+                      maxWidth: '100%', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      overflow: 'auto', 
+                      flex: 'none', 
+                      mx: 'auto',
+                      background: 'linear-gradient(145deg, rgba(34, 197, 94, 0.05), rgba(24, 24, 27, 0.8))',
+                      border: '1px solid rgba(34, 197, 94, 0.15)',
+                      borderRadius: 3,
+                      animation: 'slideIn 0.3s ease forwards',
+                      '@keyframes slideIn': {
+                        from: { opacity: 0, transform: 'translateX(-12px)' },
+                        to: { opacity: 1, transform: 'translateX(0)' },
+                      },
+                    }}
+                  >
                     <Box sx={{ width: '100%' }}>
-                      <Typography variant="h6" gutterBottom align="center">Automata válaszküldés</Typography>
-                      <Divider sx={{ mb: 2 }} />
+                      <Typography variant="h6" gutterBottom align="center" sx={{ fontWeight: 600, mb: 3 }}>Automata válaszküldés</Typography>
+                      <Divider sx={{ mb: 3, opacity: 0.3 }} />
 
-                      <FormGroup>
-                        <FormControlLabel control={<Switch sx={{ ml: 1 }} checked={autoSend || pendingAutoSend} onChange={handleAutoSendChange} disabled={halfAuto || pendingHalfAuto} />} label="Automatikus válaszküldés" />
-                        <FormControlLabel control={<Switch sx={{ ml: 1 }} checked={halfAuto || pendingHalfAuto} onChange={handleHalfAutoSendChange} disabled={autoSend || pendingAutoSend} />} label="Félautomata válaszküldés" />
-                        <Box sx={{ mt: 2 }}>
+                      <FormGroup sx={{ gap: 2 }}>
+                        <Box sx={{ 
+                          p: 3, 
+                          borderRadius: 2, 
+                          background: autoSend ? 'rgba(34, 197, 94, 0.1)' : 'rgba(99, 102, 241, 0.05)',
+                          border: `1px solid ${autoSend ? 'rgba(34, 197, 94, 0.3)' : 'rgba(99, 102, 241, 0.1)'}`,
+                          transition: 'all 0.3s ease',
+                        }}>
+                          <FormControlLabel control={<Switch sx={{ ml: 1 }} checked={autoSend || pendingAutoSend} onChange={handleAutoSendChange} disabled={halfAuto || pendingHalfAuto} />} label="Automatikus válaszküldés" />
+                        </Box>
+                        <Box sx={{ 
+                          p: 3, 
+                          borderRadius: 2, 
+                          background: halfAuto ? 'rgba(168, 85, 247, 0.1)' : 'rgba(99, 102, 241, 0.05)',
+                          border: `1px solid ${halfAuto ? 'rgba(168, 85, 247, 0.3)' : 'rgba(99, 102, 241, 0.1)'}`,
+                          transition: 'all 0.3s ease',
+                        }}>
+                          <FormControlLabel control={<Switch sx={{ ml: 1 }} checked={halfAuto || pendingHalfAuto} onChange={handleHalfAutoSendChange} disabled={autoSend || pendingAutoSend} />} label="Félautomata válaszküldés" />
+                        </Box>
+                        <Box sx={{ 
+                          mt: 2, 
+                          p: 3, 
+                          borderRadius: 2,
+                          background: 'rgba(59, 130, 246, 0.05)',
+                          border: '1px solid rgba(59, 130, 246, 0.1)',
+                        }}>
                           <FormControlLabel control={<Switch sx={{ ml: 1 }} checked={notifyOnAutoReply} onChange={handleNotifyOnAutoReplyChange} />} label="Értesítés küldése automatikus válasz esetén" />
-                          <TextField label="Értesítési email cím" value={notificationEmail} onChange={handleNotificationEmailChange} placeholder="pl. admin@example.com" fullWidth sx={{ mt: 1 }} />
+                          <TextField label="Értesítési email cím" value={notificationEmail} onChange={handleNotificationEmailChange} placeholder="pl. admin@example.com" fullWidth sx={{ mt: 2 }} />
                         </Box>
                       </FormGroup>
                       
@@ -454,24 +591,56 @@ const SettingsView = ({ themeName, setThemeName, onAutoSendChanged, onHalfAutoSe
 
               {section === 'filters' && (
                 <Grid item xs={12} sx={{ height: '100%', display: 'flex', justifyContent: 'center' }}>
-                  <Paper variant="outlined" sx={{ p: 3, height: '100%', width: sectionWidth, maxWidth: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto', flex: 'none', mx: 'auto' }}>
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 4, 
+                      height: '100%', 
+                      width: sectionWidth, 
+                      maxWidth: '100%', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      overflow: 'auto', 
+                      flex: 'none', 
+                      mx: 'auto',
+                      background: 'linear-gradient(145deg, rgba(239, 68, 68, 0.05), rgba(24, 24, 27, 0.8))',
+                      border: '1px solid rgba(239, 68, 68, 0.15)',
+                      borderRadius: 3,
+                      animation: 'slideIn 0.3s ease forwards',
+                      '@keyframes slideIn': {
+                        from: { opacity: 0, transform: 'translateX(-12px)' },
+                        to: { opacity: 1, transform: 'translateX(0)' },
+                      },
+                    }}
+                  >
                     <Box sx={{ width: '100%' }}>
-                      <Typography variant="h6" gutterBottom align="center">Szűrések</Typography>
-                      <Divider sx={{ mb: 2 }} />
+                      <Typography variant="h6" gutterBottom align="center" sx={{ fontWeight: 600, mb: 3 }}>Szűrések</Typography>
+                      <Divider sx={{ mb: 3, opacity: 0.3 }} />
 
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="subtitle1">Tiltott email címek (szűrő)</Typography>
+                      <Box sx={{ 
+                        mb: 4, 
+                        p: 3, 
+                        borderRadius: 2, 
+                        background: 'rgba(239, 68, 68, 0.05)',
+                        border: '1px solid rgba(239, 68, 68, 0.1)',
+                      }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Tiltott email címek (szűrő)</Typography>
                         <TextField label="Email címek vesszővel elválasztva" value={ignoredEmails} onChange={handleIgnoredEmailsChange} onBlur={handleIgnoredEmailsBlur} placeholder="pl. spam@example.com, noreply@domain.hu" fullWidth multiline minRows={2} sx={{ mt: 1 }} />
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Az itt megadott email címekről érkező leveleket a rendszer figyelmen kívül hagyja a válaszküldésnél (mint a spamet).</Typography>
                       </Box>
 
-                      <Box>
-                        <Typography variant="subtitle1">Csak a megadott dátumok között érkezett levelek feldolgozása</Typography>
-                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 1 }}>
+                      <Box sx={{ 
+                        p: 3, 
+                        borderRadius: 2, 
+                        background: 'rgba(245, 158, 11, 0.05)',
+                        border: '1px solid rgba(245, 158, 11, 0.1)',
+                      }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Csak a megadott dátumok között érkezett levelek feldolgozása</Typography>
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 2 }}>
                           <TextField label="Minimum dátum" type="date" value={minEmailDate} onChange={handleMinEmailDateChange} InputLabelProps={{ shrink: true }} sx={{ width: 220 }} />
                           <TextField label="Maximum dátum" type="date" value={maxEmailDate} onChange={handleMaxEmailDateChange} InputLabelProps={{ shrink: true }} sx={{ width: 220 }} />
                         </Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Csak az itt megadott dátumok között érkezett leveleket dolgozza fel a rendszer.</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Csak az itt megadott dátumok között érkezett leveleket dolgozza fel a rendszer.</Typography>
                       </Box>
                     </Box>
                   </Paper>
@@ -480,14 +649,40 @@ const SettingsView = ({ themeName, setThemeName, onAutoSendChanged, onHalfAutoSe
 
               {section === 'ai' && (
                 <Grid item xs={12} sx={{ height: '100%', display: 'flex', justifyContent: 'center' }}>
-                  <Paper variant="outlined" sx={{ p: 3, height: '100%', width: sectionWidth, maxWidth: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto', flex: 'none', mx: 'auto' }}>
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 4, 
+                      height: '100%', 
+                      width: sectionWidth, 
+                      maxWidth: '100%', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      overflow: 'auto', 
+                      flex: 'none', 
+                      mx: 'auto',
+                      background: 'linear-gradient(145deg, rgba(6, 182, 212, 0.05), rgba(24, 24, 27, 0.8))',
+                      border: '1px solid rgba(6, 182, 212, 0.15)',
+                      borderRadius: 3,
+                      animation: 'slideIn 0.3s ease forwards',
+                      '@keyframes slideIn': {
+                        from: { opacity: 0, transform: 'translateX(-12px)' },
+                        to: { opacity: 1, transform: 'translateX(0)' },
+                      },
+                    }}
+                  >
                     <Box sx={{ width: '100%' }}>
-                      <Typography variant="h6" gutterBottom align="center">AI levélkeresési beállítások</Typography>
-                      <Divider sx={{ mb: 2 }} />
+                      <Typography variant="h6" gutterBottom align="center" sx={{ fontWeight: 600, mb: 3 }}>AI levélkeresési beállítások</Typography>
+                      <Divider sx={{ mb: 3, opacity: 0.3 }} />
                     </Box>
-                    <Box>
-                      <Typography variant="subtitle1">Az AI a lent megadott dátumig visszamenőleg bejövő levelekben keressen a válaszadáshoz</Typography>
-                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 1 }}>
+                    <Box sx={{ 
+                      p: 3, 
+                      borderRadius: 2, 
+                      background: 'rgba(6, 182, 212, 0.05)',
+                      border: '1px solid rgba(6, 182, 212, 0.1)',
+                    }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Az AI a lent megadott dátumig visszamenőleg bejövő levelekben keressen a válaszadáshoz</Typography>
+                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 2 }}>
                         <TextField label="Dátum" type="date" value={fromDate} onChange={handlefromDateChange} InputLabelProps={{ shrink: true }} sx={{ width: 220 }} />
                       </Box>
                     </Box>

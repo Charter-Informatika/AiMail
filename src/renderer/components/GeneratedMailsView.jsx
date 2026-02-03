@@ -399,17 +399,43 @@ const GeneratedMailsView = ({ showSnackbar }) => {
 
     if (selectedEmail) {
       return (
-        <Paper sx={{ p: 4,
+        <Paper sx={{ 
+          p: 4,
           maxHeight: '90vh',
           overflow: 'hidden',
           display: 'flex',
-          flexDirection: 'column' }}>
-          <Typography variant="h5" gutterBottom>Előkészített levél szerkesztése</Typography>
+          flexDirection: 'column',
+          animation: 'fadeIn 0.4s ease forwards',
+          '@keyframes fadeIn': {
+            from: { opacity: 0, transform: 'translateY(12px)' },
+            to: { opacity: 1, transform: 'translateY(0)' },
+          },
+        }}>
+          <Typography 
+            variant="h5" 
+            gutterBottom
+            sx={{
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, currentColor 0%, rgba(168, 85, 247, 0.8) 100%)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+            }}
+          >
+            Előkészített levél szerkesztése
+          </Typography>
           {loadingFull || !fullEmail ? (
             <CenteredLoading size={48} text={'Betöltés...'} />
           ) : (
             <>
-              <Typography><strong>Válasz a következő címzettnek:</strong> {fullEmail.from}</Typography>
+              <Box sx={{
+                p: 2,
+                borderRadius: 2,
+                background: 'rgba(168, 85, 247, 0.05)',
+                border: '1px solid rgba(168, 85, 247, 0.15)',
+                mb: 2,
+              }}>
+                <Typography><strong>Válasz a következő címzettnek:</strong> {fullEmail.from}</Typography>
+              </Box>
               <TextField
                 label="Tárgy"
                 variant="outlined"
@@ -427,8 +453,8 @@ const GeneratedMailsView = ({ showSnackbar }) => {
                 onChange={(e) => setReplyBody(e.target.value)}
               />
               <Box sx={{ mt: 4, display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
-                <Button variant="text" onClick={handleBackFromOpen} disabled={isRegenerating}>Vissza</Button>
-                <Button variant="contained" color="primary" onClick={handleRegenerateReply} disabled={isRegenerating || sending}>{isRegenerating ? 'Generálás...' : 'Újra generálás'}</Button>
+                <Button variant="outlined" onClick={handleBackFromOpen} disabled={isRegenerating}>Vissza</Button>
+                <Button variant="contained" color="secondary" onClick={handleRegenerateReply} disabled={isRegenerating || sending}>{isRegenerating ? 'Generálás...' : 'Újra generálás'}</Button>
                 <Button variant="contained" color="primary" onClick={handleSendSelectedReply} disabled={sending || isRegenerating}>Küldés</Button>
               </Box>
             </>
@@ -438,24 +464,55 @@ const GeneratedMailsView = ({ showSnackbar }) => {
     }
 
     return (
-      <Paper sx={{ p: 4,
+      <Paper sx={{ 
+        p: 4,
         maxHeight: '900px',
         overflow: 'hidden',
         display: 'flex',
-        flexDirection: 'column' }}>
-        <Typography variant="h4" gutterBottom>
+        flexDirection: 'column',
+        animation: 'fadeIn 0.4s ease forwards',
+        '@keyframes fadeIn': {
+          from: { opacity: 0, transform: 'translateY(12px)' },
+          to: { opacity: 1, transform: 'translateY(0)' },
+        },
+      }}>
+        <Typography 
+          variant="h4" 
+          gutterBottom
+          sx={{
+            fontWeight: 700,
+            background: 'linear-gradient(135deg, currentColor 0%, rgba(168, 85, 247, 0.8) 100%)',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+          }}
+        >
           Előkészített levelek
         </Typography>
 
         {/* Progress bar during generation */}
         {isGenerating && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" sx={{ mb: 1 }}>
+          <Box sx={{ 
+            mb: 3,
+            p: 3,
+            borderRadius: 2,
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(99, 102, 241, 0.05) 100%)',
+            border: '1px solid rgba(168, 85, 247, 0.2)',
+          }}>
+            <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
               Előkészítés folyamatban: {generationProgress.current} / {generationProgress.total}
             </Typography>
             <LinearProgress 
               variant="determinate" 
-              value={generationProgress.total > 0 ? (generationProgress.current / generationProgress.total) * 100 : 0} 
+              value={generationProgress.total > 0 ? (generationProgress.current / generationProgress.total) * 100 : 0}
+              sx={{
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                '& .MuiLinearProgress-bar': {
+                  borderRadius: 4,
+                  background: 'linear-gradient(90deg, #a855f7, #6366f1)',
+                },
+              }}
             />
           </Box>
         )}
@@ -465,12 +522,18 @@ const GeneratedMailsView = ({ showSnackbar }) => {
           const emailsWithoutReply = filteredEmails.filter(e => !generatedReplies[e.id] || !generatedReplies[e.id].body);
           if (emailsWithoutReply.length > 0) {
             return (
-              <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
                 <Button
                   variant="contained"
                   color="primary"
                   onClick={handleStartGeneration}
                   disabled={isGenerating}
+                  sx={{
+                    background: 'linear-gradient(135deg, #a855f7 0%, #7c3aed 100%)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)',
+                    },
+                  }}
                 >
                   {isGenerating ? 'Előkészítés folyamatban...' : `Levelek előkészítése (${emailsWithoutReply.length} db)`}
                 </Button>
@@ -493,27 +556,67 @@ const GeneratedMailsView = ({ showSnackbar }) => {
           label="Keresés az előkészített levelekben"
           variant="outlined"
           fullWidth
-          sx={{ mb: 2 }}
+          sx={{ 
+            mb: 3,
+            '& .MuiOutlinedInput-root': {
+              background: 'rgba(168, 85, 247, 0.05)',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(168, 85, 247, 0.08)',
+              },
+            },
+          }}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
 
         <Box sx={{ mt: 2, overflowY: 'auto', flex: 1 }}>
-          {filteredEmails.map(email => (
+          {filteredEmails.map((email, index) => (
             <Box
               key={email.id}
-              sx={{ mb: 2, p: 2, border: '1px solid #333', borderRadius: 2, cursor: 'pointer' }}
+              sx={{ 
+                mb: 2, 
+                p: 3, 
+                background: generatedReplies[email.id]?.body 
+                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(168, 85, 247, 0.05) 100%)'
+                  : 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(99, 102, 241, 0.02) 100%)',
+                border: generatedReplies[email.id]?.body 
+                  ? '1px solid rgba(34, 197, 94, 0.2)'
+                  : '1px solid rgba(168, 85, 247, 0.15)',
+                borderRadius: 3, 
+                cursor: 'pointer',
+                transition: 'all 0.25s ease',
+                animation: 'slideIn 0.3s ease forwards',
+                animationDelay: `${index * 0.05}s`,
+                opacity: 0,
+                '@keyframes slideIn': {
+                  from: { opacity: 0, transform: 'translateX(-12px)' },
+                  to: { opacity: 1, transform: 'translateX(0)' },
+                },
+                '&:hover': {
+                  transform: 'translateX(6px)',
+                  boxShadow: '0 4px 20px rgba(168, 85, 247, 0.2)',
+                },
+              }}
               onClick={() => handleOpenEmail(email)}
             >
-              <Typography><strong>Feladó:</strong> {email.from}</Typography>
-              <Typography><strong>Tárgy:</strong> {email.subject}</Typography>
-              <Typography sx={{ mt: 1 }}><strong>Üzenet</strong> {email.snippet || (email.body && (email.body.length > 200 ? `${email.body.slice(0, 200)}...` : email.body))}</Typography>
+              <Typography sx={{ fontWeight: 600, mb: 0.5 }}><strong>Feladó:</strong> {email.from}</Typography>
+              <Typography sx={{ mb: 0.5 }}><strong>Tárgy:</strong> {email.subject}</Typography>
+              <Typography sx={{ mt: 1, fontSize: '0.9rem', color: 'text.secondary' }}>{email.snippet || (email.body && (email.body.length > 200 ? `${email.body.slice(0, 200)}...` : email.body))}</Typography>
 
               {/* generated reply preview */}
-              <Box sx={{ mt: 1, borderRadius: 1 }}>
-                <Typography ><strong>Válasz előnézet:</strong></Typography>
-                <Typography sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>
-                  {generatedReplies[email.id]?.body ? (generatedReplies[email.id].body.length > 100 ? `${generatedReplies[email.id].body.slice(0, 100)}...` : generatedReplies[email.id].body) : <em>Nincs előkészített válasz</em>}
+              <Box sx={{ 
+                mt: 2, 
+                p: 2, 
+                borderRadius: 2,
+                background: generatedReplies[email.id]?.body ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)',
+                border: `1px solid ${generatedReplies[email.id]?.body ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)'}`,
+              }}>
+                <Typography sx={{ fontWeight: 500, fontSize: '0.85rem', color: generatedReplies[email.id]?.body ? 'success.main' : 'error.main' }}>
+                  Válasz előnézet:
+                </Typography>
+                <Typography sx={{ whiteSpace: 'pre-wrap', mt: 1, fontSize: '0.9rem' }}>
+                  {generatedReplies[email.id]?.body ? (generatedReplies[email.id].body.length > 100 ? `${generatedReplies[email.id].body.slice(0, 100)}...` : generatedReplies[email.id].body) : <em style={{ opacity: 0.7 }}>Nincs előkészített válasz</em>}
                 </Typography>
               </Box>
             </Box>
@@ -522,7 +625,14 @@ const GeneratedMailsView = ({ showSnackbar }) => {
         <Button
           variant="contained"
           color="primary"
-          sx={{ mt: 2 }}
+          sx={{ 
+            mt: 3,
+            py: 1.5,
+            background: anyPrepared ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' : undefined,
+            '&:hover': anyPrepared ? {
+              background: 'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)',
+            } : undefined,
+          }}
           onClick={handleSendAllReplies}
           disabled={sending || !anyPrepared || isGenerating}
         >

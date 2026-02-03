@@ -291,14 +291,39 @@ const MailsView = ({ showSnackbar }) => {
       maxHeight: '84vh',
       overflow: 'hidden',
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      animation: 'fadeIn 0.4s ease forwards',
+      '@keyframes fadeIn': {
+        from: { opacity: 0, transform: 'translateY(12px)' },
+        to: { opacity: 1, transform: 'translateY(0)' },
+      },
     }}>
-      <Typography variant="h4" gutterBottom>Beérkezett levelek</Typography>
+      <Typography 
+        variant="h4" 
+        gutterBottom
+        sx={{
+          fontWeight: 700,
+          background: 'linear-gradient(135deg, currentColor 0%, rgba(99, 102, 241, 0.8) 100%)',
+          backgroundClip: 'text',
+          WebkitBackgroundClip: 'text',
+        }}
+      >
+        Beérkezett levelek
+      </Typography>
       <TextField
         label="Keresés a beérkezett levelekben"
         variant="outlined"
         fullWidth
-        sx={{ mb: 2 }}
+        sx={{ 
+          mb: 3,
+          '& .MuiOutlinedInput-root': {
+            background: 'rgba(99, 102, 241, 0.05)',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              background: 'rgba(99, 102, 241, 0.08)',
+            },
+          },
+        }}
         value={search}
         onChange={e => setSearch(e.target.value)}
       />
@@ -306,29 +331,52 @@ const MailsView = ({ showSnackbar }) => {
         overflowY: 'auto',
         flex: 1,
         pr: 2,
-        mr: -2 // Kompenzálja a padding-right-ot, hogy ne legyen dupla scrollbar
+        mr: -2
       }}>
         {filteredEmails.length === 0 ? (
-          <Typography>Nincsenek beérkezett levelek.</Typography>
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            py: 8,
+            opacity: 0.7,
+          }}>
+            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
+              Nincsenek beérkezett levelek.
+            </Typography>
+          </Box>
         ) : (
-          filteredEmails.map((email) => (
+          filteredEmails.map((email, index) => (
             <Box
               key={email.id}
               sx={{
-                mb: 3,
-                p: 2,
-                border: '1px solid #333',
-                borderRadius: 2,
+                mb: 2,
+                p: 3,
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.02) 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.15)',
+                borderRadius: 3,
                 cursor: 'pointer',
-                '&:hover': { backgroundColor: '#2a1e3a' }
+                transition: 'all 0.25s ease',
+                animation: 'slideIn 0.3s ease forwards',
+                animationDelay: `${index * 0.05}s`,
+                opacity: 0,
+                '@keyframes slideIn': {
+                  from: { opacity: 0, transform: 'translateX(-12px)' },
+                  to: { opacity: 1, transform: 'translateX(0)' },
+                },
+                '&:hover': { 
+                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(168, 85, 247, 0.08) 100%)',
+                  transform: 'translateX(6px)',
+                  boxShadow: '0 4px 20px rgba(99, 102, 241, 0.2)',
+                  borderColor: 'rgba(99, 102, 241, 0.3)',
+                }
               }}
                   onClick={() => {
-                    // Prevent selecting emails that will be filtered out (no-reply, spam, user-ignored)
                     if (isEmailIgnored(email)) {
                       showSnackbar('Ez a levél szűrőbe esik és nem nyitható meg.', 'info');
                       return;
                     }
-                    // Also prevent selecting already replied ones
                     if (repliedEmailIds.has(email.id)) {
                       showSnackbar('Ez az üzenet már meg lett válaszolva.', 'info');
                       return;
@@ -336,10 +384,10 @@ const MailsView = ({ showSnackbar }) => {
                     setSelectedEmail(email);
                   }}
             >
-              <Typography><strong>Feladó:</strong> {email.from}</Typography>
-              <Typography><strong>Tárgy:</strong> {email.subject}</Typography>
-              <Typography><strong>Dátum:</strong> {email.date ? new Date(email.date).toISOString().slice(0, 10) : ''}</Typography>
-              <Typography><strong>Előnézet:</strong> {email.snippet}</Typography>
+              <Typography sx={{ fontWeight: 600, mb: 0.5 }}><strong>Feladó:</strong> {email.from}</Typography>
+              <Typography sx={{ mb: 0.5 }}><strong>Tárgy:</strong> {email.subject}</Typography>
+              <Typography sx={{ fontSize: '0.9rem', color: 'text.secondary', mb: 0.5 }}><strong>Dátum:</strong> {email.date ? new Date(email.date).toISOString().slice(0, 10) : ''}</Typography>
+              <Typography sx={{ fontSize: '0.9rem', color: 'text.secondary', mt: 1 }}>{email.snippet}</Typography>
             </Box>
           ))
         )}

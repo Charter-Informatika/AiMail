@@ -54,76 +54,437 @@ import { IoMdConstruct } from "react-icons/io";
 import { FaTimesCircle } from "react-icons/fa";
 import IconButton from '@mui/material/IconButton';
 
-// Téma objektumok
+// Téma objektumok - Modern redesign with vibrant colors
 const themes = {
   purple: createTheme({
     palette: {
       mode: 'dark',
-      primary: { main: '#7b1fa2' },
-      background: { default: '#121015', paper: '#1f122a' },
-      text: { primary: '#e1bee7', secondary: '#b39ddb' },
+      primary: { main: '#a855f7', light: '#c084fc', dark: '#7c3aed' },
+      secondary: { main: '#ec4899', light: '#f472b6', dark: '#db2777' },
+      background: { 
+        default: '#0c0a1d', 
+        paper: '#13102a'
+      },
+      text: { primary: '#f3e8ff', secondary: '#c4b5fd' },
+      success: { main: '#22c55e', light: '#4ade80' },
+      error: { main: '#ef4444', light: '#f87171' },
+      warning: { main: '#f59e0b', light: '#fbbf24' },
+      info: { main: '#3b82f6', light: '#60a5fa' },
+    },
+    typography: {
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      h4: { fontWeight: 600, letterSpacing: '-0.02em' },
+      h5: { fontWeight: 600, letterSpacing: '-0.01em' },
+      h6: { fontWeight: 600 },
+      button: { fontWeight: 500, textTransform: 'none' },
+    },
+    shape: { borderRadius: 12 },
+    components: {
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: 'linear-gradient(to bottom right, rgba(168, 85, 247, 0.05), rgba(236, 72, 153, 0.02))',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(168, 85, 247, 0.15)',
+            transition: 'all 0.25s ease',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: 10,
+            padding: '10px 20px',
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 20px rgba(168, 85, 247, 0.35)' },
+          },
+          contained: {
+            background: 'linear-gradient(135deg, #a855f7 0%, #7c3aed 100%)',
+            '&:hover': { background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 100%)' },
+          },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            background: 'linear-gradient(145deg, rgba(168, 85, 247, 0.1), rgba(19, 16, 42, 0.9))',
+            border: '1px solid rgba(168, 85, 247, 0.2)',
+            transition: 'all 0.3s ease',
+            '&:hover': { transform: 'translateY(-4px)', boxShadow: '0 8px 32px rgba(168, 85, 247, 0.25)' },
+          },
+        },
+      },
+      MuiTextField: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 10,
+              transition: 'all 0.2s ease',
+              '&:hover': { boxShadow: '0 0 0 2px rgba(168, 85, 247, 0.2)' },
+              '&.Mui-focused': { boxShadow: '0 0 0 3px rgba(168, 85, 247, 0.3)' },
+            },
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'scale(1.1)', background: 'rgba(168, 85, 247, 0.15)' },
+          },
+        },
+      },
     },
     drawer: {
-      gradient: 'linear-gradient(to right, #7b1fa2 50%, transparent)',
-      shadow: '2px 0 8px 0 #7b1fa2',
-      curtainGradient: 'linear-gradient(to right, #7b1fa2 80%, transparent)',
-      triggerColor: '#bf55ec',
+      gradient: 'linear-gradient(to right, #a855f7 50%, transparent)',
+      shadow: '2px 0 16px 0 rgba(168, 85, 247, 0.4)',
+      curtainGradient: 'linear-gradient(to right, #a855f7 80%, transparent)',
+      triggerColor: '#c084fc',
     },
   }),
   black: createTheme({
     palette: {
       mode: 'dark',
-      primary: { main: '#ffd600' },
-      background: { default: '#000', paper: '#181818' },
-      text: { primary: '#fff', secondary: '#aaa' },
+      primary: { main: '#6366f1', light: '#818cf8', dark: '#4f46e5' },
+      secondary: { main: '#fbbf24', light: '#fcd34d', dark: '#f59e0b' },
+      background: { 
+        default: '#09090b', 
+        paper: '#18181b'
+      },
+      text: { primary: '#fafafa', secondary: '#a1a1aa' },
+      success: { main: '#22c55e', light: '#4ade80' },
+      error: { main: '#ef4444', light: '#f87171' },
+      warning: { main: '#f59e0b', light: '#fbbf24' },
+      info: { main: '#3b82f6', light: '#60a5fa' },
+    },
+    typography: {
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      h4: { fontWeight: 600, letterSpacing: '-0.02em' },
+      h5: { fontWeight: 600, letterSpacing: '-0.01em' },
+      h6: { fontWeight: 600 },
+      button: { fontWeight: 500, textTransform: 'none' },
+    },
+    shape: { borderRadius: 12 },
+    components: {
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: 'linear-gradient(to bottom right, rgba(99, 102, 241, 0.03), rgba(24, 24, 27, 0.95))',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            transition: 'all 0.25s ease',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: 10,
+            padding: '10px 20px',
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 20px rgba(99, 102, 241, 0.35)' },
+          },
+          contained: {
+            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+            '&:hover': { background: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)' },
+          },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.08), rgba(24, 24, 27, 0.95))',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            transition: 'all 0.3s ease',
+            '&:hover': { transform: 'translateY(-4px)', boxShadow: '0 8px 32px rgba(99, 102, 241, 0.2)' },
+          },
+        },
+      },
+      MuiTextField: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 10,
+              transition: 'all 0.2s ease',
+              '&:hover': { boxShadow: '0 0 0 2px rgba(99, 102, 241, 0.2)' },
+              '&.Mui-focused': { boxShadow: '0 0 0 3px rgba(99, 102, 241, 0.3)' },
+            },
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'scale(1.1)', background: 'rgba(99, 102, 241, 0.15)' },
+          },
+        },
+      },
     },
     drawer: {
-      gradient: 'linear-gradient(to right, #444 50%, transparent)',
-      shadow: '2px 0 8px 0 #111',
-      curtainGradient: 'linear-gradient(to right, #444 80%, transparent)',
-      triggerColor: '#fff',
+      gradient: 'linear-gradient(to right, #6366f1 50%, transparent)',
+      shadow: '2px 0 16px 0 rgba(99, 102, 241, 0.3)',
+      curtainGradient: 'linear-gradient(to right, #6366f1 80%, transparent)',
+      triggerColor: '#818cf8',
     },
   }),
   light: createTheme({
     palette: {
       mode: 'light',
-      primary: { main: '#1976d2' },
-      background: { default: '#fff', paper: '#f5f5f5' },
-      text: { primary: '#222', secondary: '#555' },
+      primary: { main: '#6366f1', light: '#818cf8', dark: '#4f46e5' },
+      secondary: { main: '#ec4899', light: '#f472b6', dark: '#db2777' },
+      background: { 
+        default: '#f8fafc', 
+        paper: '#ffffff'
+      },
+      text: { primary: '#1e293b', secondary: '#64748b' },
+      success: { main: '#22c55e', light: '#4ade80' },
+      error: { main: '#ef4444', light: '#f87171' },
+      warning: { main: '#f59e0b', light: '#fbbf24' },
+      info: { main: '#3b82f6', light: '#60a5fa' },
+    },
+    typography: {
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      h4: { fontWeight: 600, letterSpacing: '-0.02em' },
+      h5: { fontWeight: 600, letterSpacing: '-0.01em' },
+      h6: { fontWeight: 600 },
+      button: { fontWeight: 500, textTransform: 'none' },
+    },
+    shape: { borderRadius: 12 },
+    components: {
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: 'none',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+            border: '1px solid rgba(0, 0, 0, 0.06)',
+            transition: 'all 0.25s ease',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: 10,
+            padding: '10px 20px',
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 20px rgba(99, 102, 241, 0.25)' },
+          },
+          contained: {
+            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+            '&:hover': { background: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)' },
+          },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            background: '#ffffff',
+            border: '1px solid rgba(0, 0, 0, 0.08)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
+            transition: 'all 0.3s ease',
+            '&:hover': { transform: 'translateY(-4px)', boxShadow: '0 8px 32px rgba(99, 102, 241, 0.15)' },
+          },
+        },
+      },
+      MuiTextField: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 10,
+              transition: 'all 0.2s ease',
+              '&:hover': { boxShadow: '0 0 0 2px rgba(99, 102, 241, 0.15)' },
+              '&.Mui-focused': { boxShadow: '0 0 0 3px rgba(99, 102, 241, 0.2)' },
+            },
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'scale(1.1)', background: 'rgba(99, 102, 241, 0.1)' },
+          },
+        },
+      },
     },
     drawer: {
-      gradient: 'linear-gradient(to right, #1976d2 50%, transparent)',
-      shadow: '2px 0 8px 0 #1976d2',
-      curtainGradient: 'linear-gradient(to right, #1976d2 80%, transparent)',
-      triggerColor: '#64b5f6',
+      gradient: 'linear-gradient(to right, #6366f1 50%, transparent)',
+      shadow: '2px 0 16px 0 rgba(99, 102, 241, 0.2)',
+      curtainGradient: 'linear-gradient(to right, #6366f1 80%, transparent)',
+      triggerColor: '#818cf8',
     },
   }),
   red: createTheme({
     palette: {
       mode: 'dark',
-      primary: { main: '#d32f2f' },
-      background: { default: '#2a0909', paper: '#4a1a1a' },
-      text: { primary: '#fff', secondary: '#ffb3b3' },
+      primary: { main: '#ef4444', light: '#f87171', dark: '#dc2626' },
+      secondary: { main: '#f97316', light: '#fb923c', dark: '#ea580c' },
+      background: { 
+        default: '#0f0a0a', 
+        paper: '#1c1414'
+      },
+      text: { primary: '#fef2f2', secondary: '#fca5a5' },
+      success: { main: '#22c55e', light: '#4ade80' },
+      error: { main: '#ef4444', light: '#f87171' },
+      warning: { main: '#f59e0b', light: '#fbbf24' },
+      info: { main: '#3b82f6', light: '#60a5fa' },
+    },
+    typography: {
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      h4: { fontWeight: 600, letterSpacing: '-0.02em' },
+      h5: { fontWeight: 600, letterSpacing: '-0.01em' },
+      h6: { fontWeight: 600 },
+      button: { fontWeight: 500, textTransform: 'none' },
+    },
+    shape: { borderRadius: 12 },
+    components: {
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: 'linear-gradient(to bottom right, rgba(239, 68, 68, 0.05), rgba(28, 20, 20, 0.95))',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(239, 68, 68, 0.15)',
+            transition: 'all 0.25s ease',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: 10,
+            padding: '10px 20px',
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 20px rgba(239, 68, 68, 0.35)' },
+          },
+          contained: {
+            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+            '&:hover': { background: 'linear-gradient(135deg, #f87171 0%, #ef4444 100%)' },
+          },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            background: 'linear-gradient(145deg, rgba(239, 68, 68, 0.08), rgba(28, 20, 20, 0.95))',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            transition: 'all 0.3s ease',
+            '&:hover': { transform: 'translateY(-4px)', boxShadow: '0 8px 32px rgba(239, 68, 68, 0.25)' },
+          },
+        },
+      },
+      MuiTextField: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 10,
+              transition: 'all 0.2s ease',
+              '&:hover': { boxShadow: '0 0 0 2px rgba(239, 68, 68, 0.2)' },
+              '&.Mui-focused': { boxShadow: '0 0 0 3px rgba(239, 68, 68, 0.3)' },
+            },
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'scale(1.1)', background: 'rgba(239, 68, 68, 0.15)' },
+          },
+        },
+      },
     },
     drawer: {
-      gradient: 'linear-gradient(to right, #d32f2f 50%, transparent)',
-      shadow: '2px 0 8px 0 #d32f2f',
-      curtainGradient: 'linear-gradient(to right, #d32f2f 80%, transparent)',
-      triggerColor: '#ff5252',
+      gradient: 'linear-gradient(to right, #ef4444 50%, transparent)',
+      shadow: '2px 0 16px 0 rgba(239, 68, 68, 0.4)',
+      curtainGradient: 'linear-gradient(to right, #ef4444 80%, transparent)',
+      triggerColor: '#f87171',
     },
   }),
   blue: createTheme({
     palette: {
       mode: 'dark',
-      primary: { main: '#1976d2' },
-      background: { default: '#0d1b2a', paper: '#1b263b' },
-      text: { primary: '#e0e1dd', secondary: '#a9bcd0' },
+      primary: { main: '#3b82f6', light: '#60a5fa', dark: '#2563eb' },
+      secondary: { main: '#06b6d4', light: '#22d3ee', dark: '#0891b2' },
+      background: { 
+        default: '#0a0f1a', 
+        paper: '#111827'
+      },
+      text: { primary: '#f0f9ff', secondary: '#93c5fd' },
+      success: { main: '#22c55e', light: '#4ade80' },
+      error: { main: '#ef4444', light: '#f87171' },
+      warning: { main: '#f59e0b', light: '#fbbf24' },
+      info: { main: '#3b82f6', light: '#60a5fa' },
+    },
+    typography: {
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      h4: { fontWeight: 600, letterSpacing: '-0.02em' },
+      h5: { fontWeight: 600, letterSpacing: '-0.01em' },
+      h6: { fontWeight: 600 },
+      button: { fontWeight: 500, textTransform: 'none' },
+    },
+    shape: { borderRadius: 12 },
+    components: {
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: 'linear-gradient(to bottom right, rgba(59, 130, 246, 0.05), rgba(17, 24, 39, 0.95))',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(59, 130, 246, 0.15)',
+            transition: 'all 0.25s ease',
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: 10,
+            padding: '10px 20px',
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.35)' },
+          },
+          contained: {
+            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            '&:hover': { background: 'linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%)' },
+          },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            background: 'linear-gradient(145deg, rgba(59, 130, 246, 0.08), rgba(17, 24, 39, 0.95))',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
+            transition: 'all 0.3s ease',
+            '&:hover': { transform: 'translateY(-4px)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.25)' },
+          },
+        },
+      },
+      MuiTextField: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 10,
+              transition: 'all 0.2s ease',
+              '&:hover': { boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.2)' },
+              '&.Mui-focused': { boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.3)' },
+            },
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'scale(1.1)', background: 'rgba(59, 130, 246, 0.15)' },
+          },
+        },
+      },
     },
     drawer: {
-      gradient: 'linear-gradient(to right, #1976d2 50%, transparent)',
-      shadow: '2px 0 8px 0 #1976d2',
-      curtainGradient: 'linear-gradient(to right, #1976d2 80%, transparent)',
-      triggerColor: '#64b5f6',
+      gradient: 'linear-gradient(to right, #3b82f6 50%, transparent)',
+      shadow: '2px 0 16px 0 rgba(59, 130, 246, 0.4)',
+      curtainGradient: 'linear-gradient(to right, #3b82f6 80%, transparent)',
+      triggerColor: '#60a5fa',
     },
   }),
 };
@@ -931,7 +1292,7 @@ const App = () => {
       <Box
         sx={{
           width: '100vw',
-          height: 56,
+          height: 64,
           backgroundColor: 'background.paper',
           display: 'flex',
           alignItems: 'center',
@@ -939,45 +1300,126 @@ const App = () => {
           top: 0,
           left: 0,
           zIndex: 1400,
-          boxShadow: 4,
           px: 4,
           position: 'relative',
         }}
       >
         {/* Középre pontosan igazított ikonok */}
-        <Box sx={{ display: 'flex', gap: 2, position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-          <IconButton onClick={() => setActiveView('home')} color={activeView === 'home' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaHome size={22} />
+        <Box sx={{ 
+          display: 'flex', 
+          gap: 1, 
+          position: 'absolute', 
+          left: '50%', 
+          transform: 'translateX(-50%)',
+          background: 'rgba(99, 102, 241, 0.08)',
+          borderRadius: 3,
+          p: 1,
+          border: '1px solid rgba(99, 102, 241, 0.15)',
+        }}>
+          <IconButton 
+            onClick={() => setActiveView('home')} 
+            sx={{ 
+              color: activeView === 'home' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'home' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(99, 102, 241, 0.2)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <FaHome size={20} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('mails')} color={activeView === 'mails' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaEnvelope size={22} />
+          <IconButton 
+            onClick={() => setActiveView('mails')} 
+            sx={{ 
+              color: activeView === 'mails' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'mails' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(99, 102, 241, 0.2)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <FaEnvelope size={20} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('sentMails')} color={activeView === 'sentMails' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaEnvelopeCircleCheck size={27} />
+          <IconButton 
+            onClick={() => setActiveView('sentMails')} 
+            sx={{ 
+              color: activeView === 'sentMails' ? 'success.main' : 'text.secondary',
+              background: activeView === 'sentMails' ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(34, 197, 94, 0.2)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <FaEnvelopeCircleCheck size={24} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('generatedMails')} color={activeView === 'generatedMails' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <BsFillEnvelopeArrowUpFill size={22} />
+          <IconButton 
+            onClick={() => setActiveView('generatedMails')} 
+            sx={{ 
+              color: activeView === 'generatedMails' ? 'secondary.main' : 'text.secondary',
+              background: activeView === 'generatedMails' ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(168, 85, 247, 0.2)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <BsFillEnvelopeArrowUpFill size={20} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('prompt')} color={activeView === 'prompt' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <IoMdConstruct size={22} />
+          <IconButton 
+            onClick={() => setActiveView('prompt')} 
+            sx={{ 
+              color: activeView === 'prompt' ? 'warning.main' : 'text.secondary',
+              background: activeView === 'prompt' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(245, 158, 11, 0.2)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <IoMdConstruct size={20} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('import')} color={activeView === 'import' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaDatabase size={22} />
+          <IconButton 
+            onClick={() => setActiveView('import')} 
+            sx={{ 
+              color: activeView === 'import' ? 'info.main' : 'text.secondary',
+              background: activeView === 'import' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(59, 130, 246, 0.2)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <FaDatabase size={20} />
           </IconButton>
         </Box>
         {/* Közép és jobb ikonok közé helyezett AutoSend státusz */}
         <Box sx={{
           position: 'absolute',
-          left: 'calc(75% - 16px)', // 75% a közép és jobb széle között, -16px hogy középre essen az ikon
+          left: 'calc(75% - 16px)',
           top: '50%',
           transform: 'translateY(-50%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          width: 32,
-          height: 32,
+          px: 2,
+          py: 1,
+          borderRadius: 2,
+          background: autoSend ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+          border: autoSend ? '1px solid rgba(34, 197, 94, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
+          transition: 'all 0.3s ease',
         }}>
-          <Typography variant="srOnly">Auto</Typography>
+          <Typography variant="caption" sx={{ mr: 1, fontWeight: 500, color: autoSend ? 'success.main' : 'error.main' }}>
+            Auto
+          </Typography>
           <Switch
     checked={autoSend || pendingAutoSend}
     onChange={handleAutoSendSwitch}
@@ -985,44 +1427,123 @@ const App = () => {
     inputProps={{ 'aria-label': 'Automatikus válaszküldés kapcsoló' }}
     sx={{
       '& .MuiSwitch-switchBase.Mui-checked': {
-        color: '#4caf50',
+        color: '#22c55e',
       },
       '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-        backgroundColor: '#4caf50',
+        backgroundColor: '#22c55e',
       },
       '& .MuiSwitch-switchBase': {
-        color: '#d32f2f',
+        color: '#ef4444',
       },
       '& .MuiSwitch-track': {
-        backgroundColor: '#d32f2f',
+        backgroundColor: '#ef4444',
       },
     }}
   />
         </Box>
         {/* Jobbra igazított ikonok */}
-        <Box sx={{ display: 'flex', gap: 1, position: 'absolute', right: 32 }}>
-          {/* <FaDotCircle /> -- EZT TÖRÖLD, mert most már külön van */}
-          <IconButton onClick={() => setActiveView('help')} color={activeView === 'help' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaRegQuestionCircle size={22} />
+        <Box sx={{ 
+          display: 'flex', 
+          gap: 0.5, 
+          position: 'absolute', 
+          right: 24,
+          background: 'rgba(255, 255, 255, 0.05)',
+          borderRadius: 2,
+          p: 0.5,
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+        }}>
+          <IconButton 
+            onClick={() => setActiveView('help')} 
+            sx={{ 
+              color: activeView === 'help' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'help' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(99, 102, 241, 0.2)',
+                transform: 'scale(1.1)',
+              },
+            }}
+          >
+            <FaRegQuestionCircle size={20} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('settings')} color={activeView === 'settings' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaCog size={22} />
+          <IconButton 
+            onClick={() => setActiveView('settings')} 
+            sx={{ 
+              color: activeView === 'settings' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'settings' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                background: 'rgba(99, 102, 241, 0.2)',
+                transform: 'rotate(45deg)',
+              },
+            }}
+          >
+            <FaCog size={20} />
           </IconButton>
-          <IconButton onClick={handleLogoutClick} sx={{ color: 'text.primary' }}>
-            <FaSignOutAlt size={22} />
+          <IconButton 
+            onClick={handleLogoutClick} 
+            sx={{ 
+              color: 'text.secondary',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                color: 'warning.main',
+                background: 'rgba(245, 158, 11, 0.15)',
+                transform: 'translateX(2px)',
+              },
+            }}
+          >
+            <FaSignOutAlt size={20} />
           </IconButton>
-          <IconButton onClick={handleExitClick} sx={{ color: 'text.primary' }}>
-            <FaPowerOff size={22} />
+          <IconButton 
+            onClick={handleExitClick} 
+            sx={{ 
+              color: 'text.secondary',
+              transition: 'all 0.2s ease',
+              '&:hover': { 
+                color: 'error.main',
+                background: 'rgba(239, 68, 68, 0.15)',
+              },
+            }}
+          >
+            <FaPowerOff size={20} />
           </IconButton>
         </Box>
         {/*Balra igazított logó*/}
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', position: 'absolute', left: 15 }}>
-          <img src="logo.png" alt="Ai Mail" style={{ height: 36, objectFit: 'contain' }} />
-          {userEmail && (
-            <Typography variant="body2" sx={{ ml: 1, color: 'text.primary', fontWeight: 500, fontSize: '1.4rem' }}>
-              {userEmail}
-            </Typography>
-          )}
+        <Box sx={{ 
+          display: 'flex', 
+          gap: 2, 
+          alignItems: 'center', 
+          position: 'absolute', 
+          left: 20,
+        }}>
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            animation: 'fadeIn 0.5s ease forwards',
+            '@keyframes fadeIn': {
+              from: { opacity: 0, transform: 'translateX(-8px)' },
+              to: { opacity: 1, transform: 'translateX(0)' },
+            },
+          }}>
+            <img src="logo.png" alt="Ai Mail" style={{ height: 40, objectFit: 'contain' }} />
+            {userEmail && (
+              <Typography 
+                variant="body1" 
+                sx={{ 
+                  ml: 1, 
+                  color: 'text.primary', 
+                  fontWeight: 600, 
+                  fontSize: '1.2rem',
+                  background: 'linear-gradient(135deg, currentColor 0%, rgba(99, 102, 241, 0.7) 100%)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                }}
+              >
+                {userEmail}
+              </Typography>
+            )}
+          </Box>
         </Box>
       </Box>
       
@@ -1031,9 +1552,9 @@ const App = () => {
         <Box
           sx={{
             position: 'fixed',
-            top: 56,
+            top: 64,
             left: 0,
-            height: 'calc(100vh - 56px)',
+            height: 'calc(100vh - 64px)',
             zIndex: 1300,
             display: 'flex',
             flexDirection: 'row',
@@ -1072,7 +1593,7 @@ const App = () => {
                   transition: 'left 0.2s',
                   left: drawerOpen || isPinned ? 0 : -200,
                   zIndex: 1300,
-                  top: 56,
+                  top: 64,
                   height: 'calc(100vh - 56px)',
                 },
                 position: 'fixed',

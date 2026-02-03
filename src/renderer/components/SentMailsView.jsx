@@ -131,13 +131,38 @@ const SentMailsView = ({ showSnackbar }) => {
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
+      animation: 'fadeIn 0.4s ease forwards',
+      '@keyframes fadeIn': {
+        from: { opacity: 0, transform: 'translateY(12px)' },
+        to: { opacity: 1, transform: 'translateY(0)' },
+      },
     }}>
-      <Typography variant="h4" gutterBottom>Elküldött levelek</Typography>
+      <Typography 
+        variant="h4" 
+        gutterBottom
+        sx={{
+          fontWeight: 700,
+          background: 'linear-gradient(135deg, currentColor 0%, rgba(34, 197, 94, 0.8) 100%)',
+          backgroundClip: 'text',
+          WebkitBackgroundClip: 'text',
+        }}
+      >
+        Elküldött levelek
+      </Typography>
       <TextField
         label="Keresés az elküldött levelekben"
         variant="outlined"
         fullWidth
-        sx={{ mb: 2 }}
+        sx={{ 
+          mb: 3,
+          '& .MuiOutlinedInput-root': {
+            background: 'rgba(34, 197, 94, 0.05)',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              background: 'rgba(34, 197, 94, 0.08)',
+            },
+          },
+        }}
         value={search}
         onChange={e => setSearch(e.target.value)}
       />
@@ -145,27 +170,52 @@ const SentMailsView = ({ showSnackbar }) => {
         overflowY: 'auto',
         flex: 1,
         pr: 2,
-        mr: -2 // Kompenzálja a padding-right-ot, hogy ne legyen dupla scrollbar
+        mr: -2
       }}>
         {filteredEmails.length === 0 ? (
-          <Typography>Nincsenek elküldött levelek.</Typography>
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            py: 8,
+            opacity: 0.7,
+          }}>
+            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
+              Nincsenek elküldött levelek.
+            </Typography>
+          </Box>
         ) : (
-          filteredEmails.map((email) => (
+          filteredEmails.map((email, index) => (
             <Box
               key={email.id}
               sx={{
-                mb: 3,
-                p: 2,
-                border: '1px solid #333', // MailsView-hoz igazítva
-                borderRadius: 2,
+                mb: 2,
+                p: 3,
+                background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(99, 102, 241, 0.02) 100%)',
+                border: '1px solid rgba(34, 197, 94, 0.15)',
+                borderRadius: 3,
                 cursor: 'pointer',
-                '&:hover': { backgroundColor: '#2a1e3a' } // MailsView-hoz igazítva
+                transition: 'all 0.25s ease',
+                animation: 'slideIn 0.3s ease forwards',
+                animationDelay: `${index * 0.05}s`,
+                opacity: 0,
+                '@keyframes slideIn': {
+                  from: { opacity: 0, transform: 'translateX(-12px)' },
+                  to: { opacity: 1, transform: 'translateX(0)' },
+                },
+                '&:hover': { 
+                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)',
+                  transform: 'translateX(6px)',
+                  boxShadow: '0 4px 20px rgba(34, 197, 94, 0.2)',
+                  borderColor: 'rgba(34, 197, 94, 0.3)',
+                }
               }}
               onClick={() => setSelectedEmail(email)}
             >
-              <Typography><strong>Címzett:</strong> {email.to}</Typography>
-              <Typography><strong>Tárgy:</strong> {email.subject}</Typography>
-              <Typography><strong>Dátum:</strong> {email.date ? new Date(email.date).toISOString().slice(0, 10) : ''}</Typography>
+              <Typography sx={{ fontWeight: 600, mb: 0.5 }}><strong>Címzett:</strong> {email.to}</Typography>
+              <Typography sx={{ mb: 0.5 }}><strong>Tárgy:</strong> {email.subject}</Typography>
+              <Typography sx={{ fontSize: '0.9rem', color: 'text.secondary' }}><strong>Dátum:</strong> {email.date ? new Date(email.date).toISOString().slice(0, 10) : ''}</Typography>
             </Box>
           ))
         )}

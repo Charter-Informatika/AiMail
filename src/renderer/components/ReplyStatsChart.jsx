@@ -74,9 +74,21 @@ const ReplyStatsChart = ({ data }) => {
   };
 
   return (
-    <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 4, mb: 2 }}>
+    <Box sx={{ 
+      width: '100%', 
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      mt: 4, 
+      mb: 2,
+      animation: 'fadeIn 0.5s ease forwards',
+      '@keyframes fadeIn': {
+        from: { opacity: 0, transform: 'translateY(10px)' },
+        to: { opacity: 1, transform: 'translateY(0)' },
+      },
+    }}>
       <Paper sx={{
-        bgcolor: 'background.paper',
+        background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.05) 0%, rgba(30, 30, 40, 0.95) 100%)',
         color: 'text.primary',
         display: 'flex',
         flexDirection: 'column',
@@ -85,11 +97,27 @@ const ReplyStatsChart = ({ data }) => {
         width: '100%',
         maxWidth: 1200,
         mx: 'auto',
-        p: 1,
-        boxShadow: 4,
+        p: 3,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+        border: '1px solid rgba(99, 102, 241, 0.15)',
+        borderRadius: 3,
         minHeight: 350,
       }}>
-        <Typography variant="h4" gutterBottom sx={{ fontSize: 16, textAlign: 'center', mb: 1, mt: 1, color: theme.palette.text.primary }}>
+        <Typography 
+          variant="h6" 
+          gutterBottom 
+          sx={{ 
+            fontSize: 18, 
+            textAlign: 'center', 
+            mb: 2, 
+            mt: 1, 
+            fontWeight: 600,
+            background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}
+        >
           AI által megválaszolt levelek az elmúlt 5 napban
         </Typography>
         <Box sx={{ width: '100%', height: 300 }}>

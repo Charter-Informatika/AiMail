@@ -252,31 +252,111 @@ const SheetEditorView = ({ showSnackbar, embedded = false, onClose }) => {
   };
 
   return (
-    <Paper sx={{ p: 4, mt: 1, bgcolor: '#181818', color: 'white', borderRadius: 1, boxShadow: '0 1px 6px rgba(0,0,0,0.6)', maxHeight: 'calc(100vh - 240px)', display: 'flex', flexDirection: 'column', maxWidth: 1200, mx: 'auto' }}>
+    <Paper sx={{ 
+      p: 4, 
+      mt: 1, 
+      background: 'linear-gradient(145deg, rgba(168, 85, 247, 0.08) 0%, rgba(30, 30, 40, 0.95) 100%)',
+      color: 'white', 
+      borderRadius: 3, 
+      boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+      border: '1px solid rgba(168, 85, 247, 0.15)',
+      maxHeight: 'calc(100vh - 240px)', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      maxWidth: 1200, 
+      mx: 'auto',
+      animation: 'fadeIn 0.4s ease forwards',
+      '@keyframes fadeIn': {
+        from: { opacity: 0, transform: 'translateY(8px)' },
+        to: { opacity: 1, transform: 'translateY(0)' },
+      },
+    }}>
 
       {loading ? (
         <CenteredLoading />
       ) : (
         <>
           {/* Tabs area - title above the tabs */}
-          <Box sx={{ mb: 1, width: '100%' }}>
-            <Typography variant="h6" gutterBottom sx={{ color: 'white', textAlign: 'center' }}>Adatbázis szerkesztése</Typography>
+          <Box sx={{ mb: 2, width: '100%' }}>
+            <Typography 
+              variant="h6" 
+              gutterBottom 
+              sx={{ 
+                color: 'white', 
+                textAlign: 'center',
+                fontWeight: 700,
+                background: 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)',
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              Adatbázis szerkesztése
+            </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-              <IconButton onClick={handlePrevSheet} disabled={excelSheets.length === 0 || activeSheetIndex <= 0} sx={{ color: 'primary.main', flex: '0 0 auto', mr: 1 }} aria-label="Előző">
+              <IconButton 
+                onClick={handlePrevSheet} 
+                disabled={excelSheets.length === 0 || activeSheetIndex <= 0} 
+                sx={{ 
+                  color: 'primary.main', 
+                  flex: '0 0 auto', 
+                  mr: 1,
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateX(-3px)',
+                    background: 'rgba(168, 85, 247, 0.15)',
+                  },
+                }} 
+                aria-label="Előző"
+              >
                 <FaArrowCircleRight style={{ transform: 'rotate(180deg)' }} />
               </IconButton>
 
               <Tabs
                 value={activeSheetIndex}
                 onChange={handleSheetChange}
-                sx={{ flex: 1, maxWidth: 1000, minWidth: 0 }}
+                sx={{ 
+                  flex: 1, 
+                  maxWidth: 1000, 
+                  minWidth: 0,
+                  '& .MuiTabs-indicator': {
+                    height: 3,
+                    borderRadius: 2,
+                    background: 'linear-gradient(90deg, #a855f7, #ec4899)',
+                  },
+                  '& .MuiTab-root': {
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    transition: 'all 0.2s ease',
+                    '&.Mui-selected': {
+                      color: '#a855f7',
+                    },
+                    '&:hover': {
+                      color: '#c084fc',
+                    },
+                  },
+                }}
               >
                 {excelSheets.map((s, i) => (
                   <Tab key={i} label={s.name || `Sheet ${i+1}`} value={i} />
                 ))}
               </Tabs>
 
-              <IconButton onClick={handleNextSheet} disabled={excelSheets.length === 0 || activeSheetIndex >= excelSheets.length - 1} sx={{ color: 'primary.main', flex: '0 0 auto', ml: 1 }} aria-label="Következő">
+              <IconButton 
+                onClick={handleNextSheet} 
+                disabled={excelSheets.length === 0 || activeSheetIndex >= excelSheets.length - 1} 
+                sx={{ 
+                  color: 'primary.main', 
+                  flex: '0 0 auto', 
+                  ml: 1,
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateX(3px)',
+                    background: 'rgba(168, 85, 247, 0.15)',
+                  },
+                }} 
+                aria-label="Következő"
+              >
                 <FaArrowCircleRight />
               </IconButton>
             </Box>
@@ -292,7 +372,15 @@ const SheetEditorView = ({ showSnackbar, embedded = false, onClose }) => {
                 // fixed-height root so the field doesn't grow with content
                 '& .MuiOutlinedInput-root': {
                   alignItems: 'flex-start',
-                  backgroundColor: '#111',
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  borderRadius: 2,
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                  },
+                  '&.Mui-focused': {
+                    boxShadow: '0 0 0 2px rgba(168, 85, 247, 0.3)',
+                  },
                 },
                 // ensure general input text color
                 '& .MuiInputBase-input': {
@@ -309,64 +397,249 @@ const SheetEditorView = ({ showSnackbar, embedded = false, onClose }) => {
                   whiteSpace: 'pre-wrap',
                 },
                 '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: 'rgba(255,255,255,0.2)',
+                  borderColor: 'rgba(168, 85, 247, 0.3)',
+                },
+                '&:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: 'rgba(168, 85, 247, 0.5)',
                 },
               }}
               variant="outlined"
             />
-            <Typography sx={{ mt: 1, color: 'rgba(255,255,255,0.65)', textAlign: 'right' }}>
+            <Typography sx={{ mt: 1, color: 'rgba(255,255,255,0.65)', textAlign: 'right', fontWeight: 500 }}>
               {Math.min(sheetEditText.length, MAX_CHARS_PER_SHEET)} / {MAX_CHARS_PER_SHEET} karakter
             </Typography>
           </Box>
 
           {/* Sticky footer with action buttons so they remain visible */}
-          <Box sx={{ position: 'sticky', bottom: 0, zIndex: 10, bgcolor: '#181818', borderTop: '1px solid rgba(255,255,255,0.04)', p: 2, display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
-            <Button variant="contained" onClick={() => setConfirmExportOpen(true)} disabled={saving} sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' }, minWidth: 160 }}>
+          <Box sx={{ 
+            position: 'sticky', 
+            bottom: 0, 
+            zIndex: 10, 
+            background: 'linear-gradient(180deg, transparent 0%, rgba(30, 30, 40, 0.95) 20%)',
+            borderTop: '1px solid rgba(168, 85, 247, 0.1)', 
+            p: 2, 
+            display: 'flex', 
+            gap: 2, 
+            justifyContent: 'center', 
+            flexWrap: 'wrap', 
+            alignItems: 'center' 
+          }}>
+            <Button 
+              variant="contained" 
+              onClick={() => setConfirmExportOpen(true)} 
+              disabled={saving} 
+              sx={{ 
+                background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                color: '#fff',
+                fontWeight: 600,
+                borderRadius: 2,
+                boxShadow: '0 4px 15px rgba(34, 197, 94, 0.3)',
+                transition: 'all 0.2s ease',
+                '&:hover': { 
+                  background: 'linear-gradient(135deg, #4ade80 0%, #34d399 100%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 6px 20px rgba(34, 197, 94, 0.4)',
+                },
+                minWidth: 160 
+              }}
+            >
               {saving ? 'Mentés...' : 'Mentés'}
             </Button>
-            <Button variant="outlined" onClick={handleAddSheet} sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.2)', minWidth: 140 }} disabled={excelSheets.length >= MAX_SHEETS}>Új munkalap</Button>
-            <Button variant="outlined" onClick={() => openRename(activeSheetIndex)} sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.2)', minWidth: 120 }}>Átnevez</Button>
-            <IconButton onClick={() => requestDelete(activeSheetIndex)} sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.08)' }}>
+            <Button 
+              variant="outlined" 
+              onClick={handleAddSheet} 
+              sx={{ 
+                color: 'white', 
+                borderColor: 'rgba(168, 85, 247, 0.4)',
+                borderRadius: 2,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  borderColor: '#a855f7',
+                  background: 'rgba(168, 85, 247, 0.1)',
+                  transform: 'translateY(-1px)',
+                },
+                minWidth: 140 
+              }} 
+              disabled={excelSheets.length >= MAX_SHEETS}
+            >
+              Új munkalap
+            </Button>
+            <Button 
+              variant="outlined" 
+              onClick={() => openRename(activeSheetIndex)} 
+              sx={{ 
+                color: 'white', 
+                borderColor: 'rgba(168, 85, 247, 0.4)',
+                borderRadius: 2,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  borderColor: '#a855f7',
+                  background: 'rgba(168, 85, 247, 0.1)',
+                  transform: 'translateY(-1px)',
+                },
+                minWidth: 120 
+              }}
+            >
+              Átnevez
+            </Button>
+            <IconButton 
+              onClick={() => requestDelete(activeSheetIndex)} 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.7)', 
+                borderColor: 'rgba(255,255,255,0.08)',
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  color: '#ef4444',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                },
+              }}
+            >
               <MdDelete />
             </IconButton>
           </Box>
         </>
       )}
       {/* Rename dialog */}
-      <Dialog open={renameIndex >= 0} onClose={() => setRenameIndex(-1)}>
-        <DialogTitle>Munkalap átnevezése</DialogTitle>
+      <Dialog 
+        open={renameIndex >= 0} 
+        onClose={() => setRenameIndex(-1)}
+        PaperProps={{
+          sx: {
+            background: 'linear-gradient(145deg, rgba(30, 30, 40, 0.98) 0%, rgba(20, 20, 30, 0.99) 100%)',
+            borderRadius: 3,
+            border: '1px solid rgba(168, 85, 247, 0.2)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Munkalap átnevezése</DialogTitle>
         <DialogContent>
-          <TextField fullWidth value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+          <TextField 
+            fullWidth 
+            value={renameValue} 
+            onChange={(e) => setRenameValue(e.target.value)}
+            sx={{
+              mt: 1,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+              },
+            }}
+          />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRenameIndex(-1)}>Mégsem</Button>
-          <Button onClick={applyRename} variant="contained" sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' } }}>Mentés</Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={() => setRenameIndex(-1)}
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': { background: 'rgba(255, 255, 255, 0.05)' },
+            }}
+          >
+            Mégsem
+          </Button>
+          <Button 
+            onClick={applyRename} 
+            variant="contained" 
+            sx={{ 
+              background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)',
+              color: '#fff',
+              fontWeight: 600,
+              borderRadius: 2,
+              '&:hover': { 
+                background: 'linear-gradient(135deg, #c084fc 0%, #818cf8 100%)',
+              },
+            }}
+          >
+            Mentés
+          </Button>
         </DialogActions>
       </Dialog>
 
       {/* Delete confirm dialog */}
-      <Dialog open={confirmDeleteIndex >= 0} onClose={cancelDelete}>
-        <DialogTitle>Munkalap törlése</DialogTitle>
+      <Dialog 
+        open={confirmDeleteIndex >= 0} 
+        onClose={cancelDelete}
+        PaperProps={{
+          sx: {
+            background: 'linear-gradient(145deg, rgba(30, 30, 40, 0.98) 0%, rgba(20, 20, 30, 0.99) 100%)',
+            borderRadius: 3,
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Munkalap törlése</DialogTitle>
         <DialogContent>
           <Typography>Biztosan törölni szeretnéd a(z) "{excelSheets[confirmDeleteIndex]?.name}" munkalapot?</Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={cancelDelete}>Mégsem</Button>
-          <Button onClick={confirmDelete} variant="contained" color="error">Törlés</Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={cancelDelete}
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': { background: 'rgba(255, 255, 255, 0.05)' },
+            }}
+          >
+            Mégsem
+          </Button>
+          <Button 
+            onClick={confirmDelete} 
+            variant="contained" 
+            sx={{ 
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              color: '#fff',
+              fontWeight: 600,
+              borderRadius: 2,
+              '&:hover': { 
+                background: 'linear-gradient(135deg, #f87171 0%, #ef4444 100%)',
+              },
+            }}
+          >
+            Törlés
+          </Button>
         </DialogActions>
       </Dialog>
 
       {/* Export confirm dialog */}
-      <Dialog open={confirmExportOpen} onClose={() => setConfirmExportOpen(false)}>
-        <DialogTitle>Exportálás megerősítése</DialogTitle>
+      <Dialog 
+        open={confirmExportOpen} 
+        onClose={() => setConfirmExportOpen(false)}
+        PaperProps={{
+          sx: {
+            background: 'linear-gradient(145deg, rgba(30, 30, 40, 0.98) 0%, rgba(20, 20, 30, 0.99) 100%)',
+            borderRadius: 3,
+            border: '1px solid rgba(34, 197, 94, 0.2)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 600 }}>Exportálás megerősítése</DialogTitle>
         <DialogContent>
           <Typography>
             Biztosan exportálod a jelenlegi munkalapokat? A korábban feltöltött Excel munkafüzet felülíródik.
           </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmExportOpen(false)}>Mégsem</Button>
-          <Button onClick={() => { setConfirmExportOpen(false); handleSaveExcel(); }} variant="contained" sx={{ bgcolor: '#ffd400', color: '#000', '&:hover': { bgcolor: '#ffdb4d' } }}>Exportálás</Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={() => setConfirmExportOpen(false)}
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': { background: 'rgba(255, 255, 255, 0.05)' },
+            }}
+          >
+            Mégsem
+          </Button>
+          <Button 
+            onClick={() => { setConfirmExportOpen(false); handleSaveExcel(); }} 
+            variant="contained" 
+            sx={{ 
+              background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+              color: '#fff',
+              fontWeight: 600,
+              borderRadius: 2,
+              '&:hover': { 
+                background: 'linear-gradient(135deg, #4ade80 0%, #34d399 100%)',
+              },
+            }}
+          >
+            Exportálás
+          </Button>
         </DialogActions>
       </Dialog>
     </Paper>

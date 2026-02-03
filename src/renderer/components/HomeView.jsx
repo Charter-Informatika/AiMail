@@ -187,44 +187,144 @@ const HomeView = ({ showSnackbar, reloadKey }) => {
   }
 
   return (
-    <Paper sx={{ p: 4, maxHeight: 675 }}>
+    <Paper sx={{ 
+      p: 4, 
+      maxHeight: 900,
+      animation: 'fadeIn 0.4s ease forwards',
+      '@keyframes fadeIn': {
+        from: { opacity: 0, transform: 'translateY(12px)' },
+        to: { opacity: 1, transform: 'translateY(0)' },
+      },
+    }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Typography variant="h4" gutterBottom>
+        <Typography 
+          variant="h4" 
+          gutterBottom
+          sx={{
+            background: 'linear-gradient(135deg, currentColor 0%, rgba(99, 102, 241, 0.8) 100%)',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            fontWeight: 700,
+          }}
+        >
           Üdvözlöm, {userEmail}!
         </Typography>
         {(trialEndDate || remainingGenerations !== null) && (
-          <Box sx={{ textAlign: 'right', ml: 2 }}>
+          <Box sx={{ 
+            textAlign: 'right', 
+            ml: 2,
+            p: 2,
+            borderRadius: 2,
+            background: 'rgba(99, 102, 241, 0.1)',
+            border: '1px solid rgba(99, 102, 241, 0.2)',
+            animation: 'slideInRight 0.5s ease forwards',
+            '@keyframes slideInRight': {
+              from: { opacity: 0, transform: 'translateX(16px)' },
+              to: { opacity: 1, transform: 'translateX(0)' },
+            },
+          }}>
             {trialEndDate && (
-              <Typography variant="body1">Hátralévő idő: {timeLeftStr}</Typography>
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>Hátralévő idő: {timeLeftStr}</Typography>
             )}
             {remainingGenerations !== null && (
-              <Typography variant="body1">Hátralévő generálások: {remainingGenerations} db </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>Hátralévő generálások: {remainingGenerations} db </Typography>
             )}
           </Box>
         )}
       </Box>
-      <Typography variant="body1" sx={{ mt: 4 }}>
-        {unreadEmails.length > 0 
-          ? `${unreadEmails.length} db válaszolatlan leveled van.`
-          : 'Nincs válaszra váró levél'}
-        <IconButton onClick={() => handleViewChange('mails')} size="large" sx={{ ml: 1, color: 'primary.main' }}>
+      <Box 
+        sx={{ 
+          mt: 4,
+          p: 3,
+          maxWidth: '33%',
+          borderRadius: 3,
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.05) 100%)',
+          border: '1px solid rgba(99, 102, 241, 0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          transition: 'all 0.3s ease',
+          cursor: 'pointer',
+          animation: 'slideInLeft 0.4s ease forwards',
+          animationDelay: '0.1s',
+          opacity: 0,
+          '@keyframes slideInLeft': {
+            from: { opacity: 0, transform: 'translateX(-16px)' },
+            to: { opacity: 1, transform: 'translateX(0)' },
+          },
+          '&:hover': {
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.1) 100%)',
+            transform: 'translateX(4px)',
+            boxShadow: '0 4px 20px rgba(99, 102, 241, 0.2)',
+          },
+        }}
+        onClick={() => handleViewChange('mails')}
+      >
+        <Typography variant="body1" sx={{ fontSize: '1.1rem', fontWeight: 500 }}>
+          {unreadEmails.length > 0 
+            ? `${unreadEmails.length} db válaszolatlan leveled van.`
+            : 'Nincs válaszra váró levél'}
+        </Typography>
+        <IconButton size="large" sx={{ 
+          color: 'primary.main',
+          transition: 'all 0.2s ease',
+          '&:hover': { transform: 'scale(1.15) translateX(4px)' },
+        }}>
             <FaArrowCircleRight />
         </IconButton>
-      </Typography>
+      </Box>
       {halfAuto && (
-        <Typography variant="body1" sx={{ mt: 2 }}>
-          {unreadEmails.length > 0 
-            ? `${unreadEmails.length} db előkészítésre váró leveled van.`
-            : 'Nincs előkészítésre váró leveled'}
-          <IconButton onClick={() => handleViewChange('generatedMails')} size="large" sx={{ ml: 1, color: 'primary.main' }}>
+        <Box 
+          sx={{ 
+            mt: 2,
+            p: 3,
+            maxWidth: '33%',
+            borderRadius: 3,
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.05) 100%)',
+            border: '1px solid rgba(99, 102, 241, 0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            transition: 'all 0.3s ease',
+            cursor: 'pointer',
+            animation: 'slideInLeft 0.4s ease forwards',
+            animationDelay: '0.2s',
+            opacity: 0,
+            '&:hover': {
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.1) 100%)',
+            transform: 'translateX(4px)',
+            boxShadow: '0 4px 20px rgba(99, 102, 241, 0.2)',
+          },
+          }}
+          onClick={() => handleViewChange('generatedMails')}
+        >
+          <Typography variant="body1" sx={{ fontSize: '1.1rem', fontWeight: 500 }}>
+            {unreadEmails.length > 0 
+              ? `${unreadEmails.length} db előkészítésre váró leveled van.`
+              : 'Nincs előkészítésre váró leveled'}
+          </Typography>
+          <IconButton size="large" sx={{ 
+            color: 'primary.main',
+            transition: 'all 0.2s ease',
+            '&:hover': { transform: 'scale(1.15) translateX(4px)' },
+          }}>
               <FaArrowCircleRight />
           </IconButton>
-        </Typography>
+        </Box>
       )}
       {statsLoading ? (
         <CenteredLoading size={40} text={'Betöltés...'} />
       ) : (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 4, mb: 1 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          mt: 4, 
+          mb: 1,
+          animation: 'fadeIn 0.5s ease forwards',
+          animationDelay: '0.3s',
+          opacity: 0,
+        }}>
           <ReplyStatsChart data={statsData} width={300} height={100} />
         </Box>
       )}

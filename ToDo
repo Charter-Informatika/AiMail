@@ -1,7 +1,6 @@
 Fontos:
+    - Gmail kijelentkezésnél/loginnal gondok vannak
     - UI design javítások
-    - Automata válaszaddás kivétele az ingyenes verzióból
-    - Több fizetős verzió (nincs ai, levél korlát stb.)
 Ráér:  
     - Windows ne dobja fel hogy futtatás mellőzése mert vírusnak hiszi
     - Please review for production readiness check for common vulnerabilities, secure headers, forms, input validation, authentication, error handling, debug statements, dependency security, and ensure adherence to industry best practices.

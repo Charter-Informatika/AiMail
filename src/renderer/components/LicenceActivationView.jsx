@@ -73,19 +73,49 @@ const LicenceActivationView = ({}) => {
             sx={{
                 width: 520,
                 mx: "auto",
-                mt: 24,
+                mt: 16,
                 display: "flex",
                 flexDirection: "column",
                 gap: 3,
-                p: 4,
-                bgcolor: theme.palette.background.paper,
-                borderRadius: 2,
-                boxShadow: 3
+                p: 5,
+                background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.08) 0%, rgba(30, 30, 40, 0.95) 100%)',
+                borderRadius: 4,
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+                border: '1px solid rgba(99, 102, 241, 0.2)',
+                animation: 'fadeIn 0.5s ease forwards',
+                '@keyframes fadeIn': {
+                    from: { opacity: 0, transform: 'translateY(20px)' },
+                    to: { opacity: 1, transform: 'translateY(0)' },
+                },
             }}
         >
-            <Typography variant="h5" fontWeight={600}>
-                Licenc aktiválás
-            </Typography>
+            <Box sx={{ textAlign: 'center', mb: 2 }}>
+                <Box sx={{
+                    width: 70,
+                    height: 70,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.15) 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    mx: 'auto',
+                    mb: 2,
+                }}>
+                    <Typography sx={{ fontSize: 32 }}>🔐</Typography>
+                </Box>
+                <Typography 
+                    variant="h5" 
+                    fontWeight={700}
+                    sx={{
+                        background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                        backgroundClip: 'text',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                    }}
+                >
+                    Licenc aktiválás
+                </Typography>
+            </Box>
 
             <TextField
                 label="Email cím"
@@ -101,6 +131,12 @@ const LicenceActivationView = ({}) => {
                         ? "Érvényes email címet adjon meg."
                         : "Adja meg a vásárláskor használt email címet."
                 }
+                sx={{
+                    '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        background: 'rgba(0, 0, 0, 0.2)',
+                    },
+                }}
             />
 
             <TextField
@@ -116,10 +152,26 @@ const LicenceActivationView = ({}) => {
                         ? "A licenckód pontosan 16 alfanumerikus karakter."
                         : "Pl.: ABCD-EF12-345G-HI67"
                 }
+                sx={{
+                    '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        background: 'rgba(0, 0, 0, 0.2)',
+                    },
+                }}
             />
 
             {error && (
-                <Typography color="error" sx={{ mt: -2, mb: 1 }}>
+                <Typography 
+                    color="error" 
+                    sx={{ 
+                        mt: -1, 
+                        mb: 1,
+                        p: 1.5,
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        borderRadius: 2,
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                    }}
+                >
                     {error}
                 </Typography>
             )}
@@ -128,6 +180,24 @@ const LicenceActivationView = ({}) => {
                 type="submit"
                 variant="contained"
                 disabled={!canSubmit}
+                sx={{
+                    background: 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    borderRadius: 2,
+                    py: 1.5,
+                    fontSize: '1rem',
+                    boxShadow: '0 4px 15px rgba(34, 197, 94, 0.3)',
+                    transition: 'all 0.2s ease',
+                    '&:hover': { 
+                        background: 'linear-gradient(135deg, #4ade80 0%, #34d399 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(34, 197, 94, 0.4)',
+                    },
+                    '&:disabled': {
+                        background: 'rgba(100, 100, 100, 0.3)',
+                    },
+                }}
             >
                 {submitting ? "Ellenőrzés..." : "Aktiválás"}
             </Button>
