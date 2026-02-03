@@ -1,10 +1,9 @@
 Fontos:
     - HA lefrissül az uj verzióra ne resetelje a sent emails.jsont, settings.json meg a többit!
     - Minden ai folyamat elsődlegesen a helyi ai-t próbálja elérni
-    - Újra generálás gomb az e
+    - Újra generálás gomb az előkészített leveleknél
     - UI elcsúszások az AI tanítása résznél
     - UI design javítás
-    - Levél szekezet view = Ai tanítás view 
     - Logó bal felülre
     - Automata válaszaddás kivétele az ingyenes verzióból
     - Több fizetős verzió (nincs ai, levél korlát stb.)

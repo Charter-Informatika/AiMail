@@ -38,7 +38,6 @@ import PromptView from './components/PromptView';
 import SentMailsView from './components/SentMailsView';
 import MailsView from './components/MailsView';
 import SettingsView from './components/SettingsView';
-import MailStructureView from './components/MailStructureView';
 import TutorialView from './components/TutorialView';
 import DemoOverView from './components/DemoOverView';
 import HelpView from './components/HelpView';
@@ -48,14 +47,12 @@ import UpdateReadyView from "./components/UpdateReadyView.jsx";
 import LicenceActivationView from './components/LicenceActivationView.jsx';
 import SheetEditorView from './components/SheetEditorView';
 import GeneratedMailsView from "./components/GeneratedMailsView.jsx";
-import { FaRegQuestionCircle, FaBars, FaThumbtack, FaHome, FaEnvelope, FaDatabase, FaRobot, FaCog, FaSignOutAlt, FaPowerOff, FaUserFriends } from 'react-icons/fa';
+import { FaRegQuestionCircle, FaThumbtack, FaHome, FaEnvelope, FaDatabase, FaRobot, FaCog, FaSignOutAlt, FaPowerOff, FaUserFriends } from 'react-icons/fa';
 import { FaEnvelopeCircleCheck } from "react-icons/fa6";
 import { BsFillEnvelopeArrowUpFill } from "react-icons/bs";
 import { IoMdConstruct } from "react-icons/io";
-import { GoDotFill } from "react-icons/go";
 import { FaTimesCircle } from "react-icons/fa";
 import IconButton from '@mui/material/IconButton';
-import ReplyStatsChart from './components/ReplyStatsChart';
 
 // Téma objektumok
 const themes = {
@@ -961,14 +958,11 @@ const App = () => {
           <IconButton onClick={() => setActiveView('generatedMails')} color={activeView === 'generatedMails' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
             <BsFillEnvelopeArrowUpFill size={22} />
           </IconButton>
-          <IconButton onClick={() => setActiveView('mailStructure')} color={activeView === 'mailStructure' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
+          <IconButton onClick={() => setActiveView('prompt')} color={activeView === 'prompt' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
             <IoMdConstruct size={22} />
           </IconButton>
           <IconButton onClick={() => setActiveView('import')} color={activeView === 'import' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
             <FaDatabase size={22} />
-          </IconButton>
-          <IconButton onClick={() => setActiveView('prompt')} color={activeView === 'prompt' ? 'default' : 'inherit'} sx={{ color: 'text.primary' }}>
-            <FaRobot size={22} />
           </IconButton>
         </Box>
         {/* Közép és jobb ikonok közé helyezett AutoSend státusz */}
@@ -1133,18 +1127,13 @@ const App = () => {
                     </ListItemButton>
                   </ListItem>
                   <ListItem disablePadding>
-                    <ListItemButton selected={activeView === 'mailStructure'} onClick={() => setActiveView('mailStructure')}>
+                    <ListItemButton selected={activeView === 'prompt'} onClick={() => setActiveView('prompt')}>
                       <ListItemText primary="Levél szerkezet" />
                     </ListItemButton>
                   </ListItem>
                   <ListItem disablePadding>
                     <ListItemButton selected={activeView === 'import'} onClick={() => setActiveView('import')}>
                       <ListItemText primary="AI adatbázis" />
-                    </ListItemButton>
-                  </ListItem>
-                  <ListItem disablePadding>
-                    <ListItemButton selected={activeView === 'prompt'} onClick={() => setActiveView('prompt')}>
-                      <ListItemText primary="AI tanítás" />
                     </ListItemButton>
                   </ListItem>
                 </List>
