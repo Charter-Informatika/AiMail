@@ -80,27 +80,27 @@ export function setSmtpAuth(config) {
 export function logout() {
   console.log('[logout] Starting logout, provider:', authState.provider);
   
-  // Gmail token törlése - mindkét lehetséges helyről
+  // Gmail token törlése - mindkét lehetséges helyről (üres fájlt hagyunk)
   if (authState.provider === 'gmail') {
     // 1. userData mappában lévő token (file-helpers.js TOKEN_PATH)
     try {
       if (fs.existsSync(TOKEN_PATH)) {
-        fs.unlinkSync(TOKEN_PATH);
-        console.log('[logout] Deleted token from userData:', TOKEN_PATH);
+        fs.writeFileSync(TOKEN_PATH, '{}', 'utf-8');
+        console.log('[logout] Cleared token in userData:', TOKEN_PATH);
       }
     } catch (e) {
-      console.error('[logout] Failed to delete Gmail token file (userData):', e);
+      console.error('[logout] Failed to clear Gmail token file (userData):', e);
     }
     
     // 2. Projekt mappában lévő token (findFile által megtalált)
     try {
       const projectTokenPath = findFile('token.json');
       if (projectTokenPath && fs.existsSync(projectTokenPath)) {
-        fs.unlinkSync(projectTokenPath);
-        console.log('[logout] Deleted token from project:', projectTokenPath);
+        fs.writeFileSync(projectTokenPath, '{}', 'utf-8');
+        console.log('[logout] Cleared token in project:', projectTokenPath);
       }
     } catch (e) {
-      console.error('[logout] Failed to delete Gmail token file (project):', e);
+      console.error('[logout] Failed to clear Gmail token file (project):', e);
     }
   }
   
