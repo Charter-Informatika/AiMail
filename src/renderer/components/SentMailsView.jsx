@@ -29,7 +29,7 @@ const SentMailsView = ({ showSnackbar }) => {
     return (
       (!q) ||
       (email.subject && email.subject.toLowerCase().includes(q)) ||
-      (email.to && email.toLowerCase().includes(q)) ||
+      (email.to && email.to.toLowerCase().includes(q)) ||
       (email.body && email.body.toLowerCase().includes(q)) ||
       (dateStr && dateStr.includes(q))
     );
@@ -142,7 +142,7 @@ const SentMailsView = ({ showSnackbar }) => {
         gutterBottom
         sx={{
           fontWeight: 700,
-          background: 'linear-gradient(135deg, currentColor 0%, rgba(34, 197, 94, 0.8) 100%)',
+          background: 'linear-gradient(135deg, currentColor 0%, rgba(99, 102, 241, 0.15) 100%)',
           backgroundClip: 'text',
           WebkitBackgroundClip: 'text',
         }}
@@ -156,10 +156,10 @@ const SentMailsView = ({ showSnackbar }) => {
         sx={{ 
           mb: 3,
           '& .MuiOutlinedInput-root': {
-            background: 'rgba(34, 197, 94, 0.05)',
+            background: 'rgba(99, 102, 241, 0.15)',
             transition: 'all 0.2s ease',
             '&:hover': {
-              background: 'rgba(34, 197, 94, 0.08)',
+              background: 'rgba(99, 102, 241, 0.08)',
             },
           },
         }}
@@ -192,8 +192,8 @@ const SentMailsView = ({ showSnackbar }) => {
               sx={{
                 mb: 2,
                 p: 3,
-                background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(99, 102, 241, 0.02) 100%)',
-                border: '1px solid rgba(34, 197, 94, 0.15)',
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.02) 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.15)',
                 borderRadius: 3,
                 cursor: 'pointer',
                 transition: 'all 0.25s ease',
@@ -205,10 +205,10 @@ const SentMailsView = ({ showSnackbar }) => {
                   to: { opacity: 1, transform: 'translateX(0)' },
                 },
                 '&:hover': { 
-                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)',
+                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(168, 85, 247, 0.08) 100%)',
                   transform: 'translateX(6px)',
-                  boxShadow: '0 4px 20px rgba(34, 197, 94, 0.2)',
-                  borderColor: 'rgba(34, 197, 94, 0.3)',
+                  boxShadow: '0 4px 20px rgba(99, 102, 241, 0.2)',
+                  borderColor: 'rgba(99, 102, 241, 0.3)',
                 }
               }}
               onClick={() => setSelectedEmail(email)}

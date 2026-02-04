@@ -43,6 +43,9 @@ import {
   safeTrim,
   CACHED_EMAILS_FILE,
   TOKEN_PATH,
+  REPLIED_EMAILS_FILE,
+  GENERATED_REPLIES_FILE,
+  SENT_EMAILS_LOG_FILE,
   getConfigFile,
   getAuthStateFile
 } from './src/backend/file-helpers.js';
@@ -1353,7 +1356,31 @@ ipcMain.handle('logout', async () => {
     }
     
     fs.writeFileSync(CACHED_EMAILS_FILE, JSON.stringify([]));
+    
+    try {
+      fs.writeFileSync(REPLIED_EMAILS_FILE, JSON.stringify([]));
+      repliedEmailIds = [];
+    } catch (e) {
+      console.error('[logout] Failed to clear replied emails:', e);
+    }
+    
+    try {
+      fs.writeFileSync(GENERATED_REPLIES_FILE, JSON.stringify([]));
+    } catch (e) {
+      console.error('[logout] Failed to clear generated replies:', e);
+    }
+    
+    try {
+      fs.writeFileSync(SENT_EMAILS_LOG_FILE, JSON.stringify([]));
+    } catch (e) {
+      console.error('[logout] Failed to clear sent emails log:', e);
+    }
+    
     logoutAuth();
+    
+    activationEmail = null;
+    setSetting('activationEmail', null);
+    
     return true;
   } catch (error) {
     console.error('Hiba a kijelentkezés során:', error);

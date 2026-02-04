@@ -446,8 +446,8 @@ const SettingsView = ({ themeName, setThemeName, onAutoSendChanged, onHalfAutoSe
             <Tab label="Szűrések" value="filters" />
           </Tabs>
 
-          <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-            <Grid container spacing={3} sx={{ height: '100%', width: '100%', flex: 1 }}>
+          <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+            <Grid container spacing={3} sx={{ height: '100%', width: '100%', flex: 1, justifyContent: 'center' }}>
               {section === 'appearance' && (
                 <Grid item xs={12} sx={{ height: '100%', display: 'flex', justifyContent: 'center' }}>
                   <Paper 

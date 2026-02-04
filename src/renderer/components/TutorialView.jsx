@@ -186,7 +186,7 @@ További információkért keresd fel a https://okosmail.hu weboldalt vagy nézd
             width: 900,
             borderRadius: 4,
             minHeight: 320,
-            maxHeight: 500,
+            maxHeight: 550,
             display: 'flex',
             alignItems: 'center',
             background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.08), rgba(24, 24, 27, 0.95))',

@@ -948,9 +948,18 @@ const App = () => {
   const handleLogoutConfirm = async () => {
     try {
       await window.api.logout();
+      try {
+        localStorage.removeItem('uploadedFileName');
+        localStorage.removeItem('originalUploadedFileName');
+        localStorage.removeItem('previousUploadedFileName');
+        localStorage.removeItem('activeView');
+      } catch (e) {
+        console.warn('localStorage törlés hiba:', e);
+      }
+      
       setIsAuthenticated(false);
       setEmailProvider(null);
-      setUserEmail(''); // ÚJ: email törlése
+      setUserEmail(''); 
       setLogoutDialogOpen(false);
       showSnackbar('Sikeres kijelentkezés!', 'success');
     } catch (error) {
@@ -1347,11 +1356,11 @@ const App = () => {
           <IconButton 
             onClick={() => setActiveView('sentMails')} 
             sx={{ 
-              color: activeView === 'sentMails' ? 'success.main' : 'text.secondary',
-              background: activeView === 'sentMails' ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
+              color: activeView === 'sentMails' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'sentMails' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
               transition: 'all 0.2s ease',
               '&:hover': { 
-                background: 'rgba(34, 197, 94, 0.2)',
+                background: 'rgba(99, 102, 241, 0.2)',
                 transform: 'translateY(-2px)',
               },
             }}
@@ -1361,11 +1370,11 @@ const App = () => {
           <IconButton 
             onClick={() => setActiveView('generatedMails')} 
             sx={{ 
-              color: activeView === 'generatedMails' ? 'secondary.main' : 'text.secondary',
-              background: activeView === 'generatedMails' ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
+              color: activeView === 'generatedMails' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'generatedMails' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
               transition: 'all 0.2s ease',
               '&:hover': { 
-                background: 'rgba(168, 85, 247, 0.2)',
+                background: 'rgba(99, 102, 241, 0.2)',
                 transform: 'translateY(-2px)',
               },
             }}
@@ -1375,11 +1384,11 @@ const App = () => {
           <IconButton 
             onClick={() => setActiveView('prompt')} 
             sx={{ 
-              color: activeView === 'prompt' ? 'warning.main' : 'text.secondary',
-              background: activeView === 'prompt' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+              color: activeView === 'prompt' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'prompt' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
               transition: 'all 0.2s ease',
               '&:hover': { 
-                background: 'rgba(245, 158, 11, 0.2)',
+                background: 'rgba(99, 102, 241, 0.2)',
                 transform: 'translateY(-2px)',
               },
             }}
@@ -1389,11 +1398,11 @@ const App = () => {
           <IconButton 
             onClick={() => setActiveView('import')} 
             sx={{ 
-              color: activeView === 'import' ? 'info.main' : 'text.secondary',
-              background: activeView === 'import' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+              color: activeView === 'import' ? 'primary.main' : 'text.secondary',
+              background: activeView === 'import' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
               transition: 'all 0.2s ease',
               '&:hover': { 
-                background: 'rgba(59, 130, 246, 0.2)',
+                background: 'rgba(99, 102, 241, 0.2)',
                 transform: 'translateY(-2px)',
               },
             }}
@@ -1616,7 +1625,7 @@ const App = () => {
               onMouseLeave={handleDrawerMouseLeave}
             >
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', p: 1 }}>
-                <Typography variant='caption' sx={{ mr: 9 }}>Verzió: 1.2.5</Typography>
+                <Typography variant='caption' sx={{ mr: 9 }}>Verzió: 2.0.0</Typography>
                 <IconButton onClick={handlePinClick} size="small" color={isPinned ? 'error' : 'default'}>
                   {isPinned ? (
                     <FaTimesCircle size={20} color="#d32f2f" />
