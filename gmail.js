@@ -248,15 +248,12 @@ export async function getRecentEmails() {
       const parts = fromDateStr.split('-');
       // Gmail search uses YYYY/MM/DD format for date queries
       const gmailDate = `${parts[0]}/${parts[1]}/${parts[2]}`;
-      // Use `after:` to get messages from the given date (inclusive behavior depends on Gmail but this is the common approach)
       listParams.q = `after:${gmailDate}`;
     }
   } catch (e) {
-    // If settings can't be read or parsed, silently continue with default behavior
     console.error('[AIServiceApp][gmail.js] settings.json read error:', e.message);
   }
 
-  // Page through all results and aggregate messages
   let messages = [];
   try {
     let nextPageToken = null;
@@ -269,11 +266,9 @@ export async function getRecentEmails() {
     } while (nextPageToken);
   } catch (e) {
     console.error('[AIServiceApp][gmail.js] Error listing messages:', e.message);
-    messages = []; // fallback to empty
+    messages = []; 
   }
 
-  // Helper to extract a readable body from the MIME payload (text/plain preferred,
-  // fallback to text/html converted to text). This mirrors the logic used in getEmailById.
   function extractBodyFromPayload(payload) {
     function isUnsupportedHtmlMessage(text) {
       const lower = text.toLowerCase();

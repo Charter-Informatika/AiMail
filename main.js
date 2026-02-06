@@ -15,7 +15,6 @@ import SmtpEmailHandler from './src/backend/smtp-handler.js';
 import { authorize } from './src/backend/auth.js';
 
 import {
-  createDbConnection,
   setTrialEndedForLicence,
   checkLicenceInDb,
   isLicenceActivated,
@@ -1323,7 +1322,7 @@ ipcMain.handle('check-ollama-available', async () => {
 // Auth handlers
 ipcMain.handle('login-with-gmail', async () => {
   try {
-    const oAuth2Client = await authorize();
+    const oAuth2Client = await authorize({ forceNewToken: true });
     let email = null;
     try {
       const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });

@@ -8,9 +8,17 @@ import http from 'http';
 const CREDENTIALS_PATH = findFile('credentials.json');
 const TOKEN_PATH = findFile('token.json');
 
+const AUTH_TIMEOUT_MS = 300000;
+
 let tokenGenerationPromise = null;
 
-export async function authorize() {
+/**
+ * Authorize with Gmail OAuth2
+ * @param {Object} options - Options
+ * @param {boolean} options.forceNewToken - If true, will open browser for new token if needed. If false, throws error instead.
+ * @returns {Promise<OAuth2Client>}
+ */
+export async function authorize({ forceNewToken = false } = {}) {
   const content = await fs.readFile(CREDENTIALS_PATH, 'utf-8');
   const credentials = JSON.parse(content).installed;
 
@@ -22,17 +30,32 @@ export async function authorize() {
 
   try {
     const token = await fs.readFile(TOKEN_PATH, 'utf-8');
-    oAuth2Client.setCredentials(JSON.parse(token));
+    const parsedToken = JSON.parse(token);
+    
+    // Ellenőrizzük, hogy a token érvényes-e (van benne access_token vagy refresh_token)
+    if (!parsedToken || (!parsedToken.access_token && !parsedToken.refresh_token)) {
+      console.log('[auth] Token file exists but is empty or invalid');
+      throw new Error('Invalid or empty token');
+    }
+    
+    oAuth2Client.setCredentials(parsedToken);
     return oAuth2Client;
   } catch (err) {
+    // Ha nincs forceNewToken, ne indítsunk böngészős bejelentkezést
+    if (!forceNewToken) {
+      console.log('[auth] No valid token and forceNewToken is false, throwing error');
+      throw new Error('No valid Gmail token available');
+    }
+    
     if (tokenGenerationPromise) {
       console.log('Token generation already in progress, waiting...');
       await tokenGenerationPromise;
       const token = await fs.readFile(TOKEN_PATH, 'utf-8');
-      oAuth2Client.setCredentials(JSON.parse(token));
+      oAuth2Client.setCredentials(parsedToken);
       return oAuth2Client;
     }
 
+    console.log('[auth] Starting new token generation (forceNewToken=true)...');
     tokenGenerationPromise = getNewToken(oAuth2Client);
     try {
       await tokenGenerationPromise;
@@ -69,10 +92,50 @@ async function getNewToken(oAuth2Client) {
 
 function waitForCodeFromLocalhost() {
   return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
+    let server = null;
+    
+    // Timeout - ha nem érkezik válasz időben
+    const timeout = setTimeout(() => {
+      console.log('[auth] Gmail authentication timed out');
+      if (server) {
+        try { server.close(); } catch (e) { /* ignore */ }
+      }
+      reject(new Error('Sikertelen Gmail hitelesítés - időtúllépés'));
+    }, AUTH_TIMEOUT_MS);
+    
+    server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://localhost');
       const code = url.searchParams.get('code');
+      const error = url.searchParams.get('error');
+      
+      // Ha a felhasználó megtagadta a hozzáférést
+      if (error) {
+        clearTimeout(timeout);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`
+          <!DOCTYPE html>
+          <html lang="hu">
+          <head>
+            <meta charset="UTF-8">
+            <title>Sikertelen hitelesítés</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+              h1 { color: #f44336; }
+            </style>
+          </head>
+          <body>
+            <h1>Sikertelen Gmail hitelesítés</h1>
+            <p>A hozzáférés megtagadva vagy megszakítva.</p>
+          </body>
+          </html>
+        `);
+        server.close();
+        reject(new Error('Sikertelen Gmail hitelesítés - hozzáférés megtagadva'));
+        return;
+      }
+      
       if (code) {
+        clearTimeout(timeout);
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`
           <!DOCTYPE html>
@@ -104,11 +167,36 @@ function waitForCodeFromLocalhost() {
         server.close();
         resolve(code);
       } else {
-        res.end('Hiba történt.');
+        clearTimeout(timeout);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`
+          <!DOCTYPE html>
+          <html lang="hu">
+          <head>
+            <meta charset="UTF-8">
+            <title>Sikertelen hitelesítés</title>
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+              h1 { color: #f44336; }
+            </style>
+          </head>
+          <body>
+            <h1>Sikertelen Gmail hitelesítés</h1>
+            <p>Hiba történt a hitelesítés során.</p>
+          </body>
+          </html>
+        `);
         server.close();
-        reject(new Error('Nem sikerült kódot kapni'));
+        reject(new Error('Sikertelen Gmail hitelesítés'));
       }
     });
+    
+    server.on('error', (err) => {
+      clearTimeout(timeout);
+      console.error('[auth] Server error:', err);
+      reject(new Error('Sikertelen Gmail hitelesítés - szerver hiba'));
+    });
+    
     server.listen(3000);
   });
 }
