@@ -1,6 +1,5 @@
 Fontos:
-    - Gmail kijelentkezésnél/loginnal gondok vannak
-    - UI design javítások
+    - Nyers db lekérdezések - REST API
 Ráér:  
     - Windows ne dobja fel hogy futtatás mellőzése mert vírusnak hiszi
     - Please review for production readiness check for common vulnerabilities, secure headers, forms, input validation, authentication, error handling, debug statements, dependency security, and ensure adherence to industry best practices.

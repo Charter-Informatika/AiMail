@@ -122,16 +122,15 @@ function htmlToTextWithTables(html) {
 export async function getUnreadEmails(options = {}) {
   const { forceRefresh = false } = options;
   
-  // Return cached if throttled and not forcing refresh
-  if (!forceRefresh && !canFetchGmail() && gmailCache.emails.size > 0) {
-    console.log('[Gmail] Returning cached emails (throttled)');
-    return getCachedGmailEmails();
-  }
-  
   // Prevent concurrent fetches
   if (gmailCache.fetchInProgress) {
-    console.log('[Gmail] Fetch in progress, returning cached');
-    return getCachedGmailEmails();
+    console.log('[Gmail] Fetch in progress, waiting...');
+    // Várjunk egy kicsit és próbáljuk újra
+    await new Promise(resolve => setTimeout(resolve, 500));
+    if (gmailCache.fetchInProgress) {
+      console.log('[Gmail] Still in progress, returning empty');
+      return [];
+    }
   }
   
   gmailCache.fetchInProgress = true;
@@ -140,6 +139,7 @@ export async function getUnreadEmails(options = {}) {
     const auth = await authorize();
     const gmail = google.gmail({ version: 'v1', auth });
 
+    console.log('[Gmail] Fetching unread emails from Gmail API...');
     const res = await gmail.users.messages.list({
       userId: 'me',
       q: 'is:unread',
@@ -148,29 +148,21 @@ export async function getUnreadEmails(options = {}) {
 
     const messages = res.data.messages || [];
     
-    // Check which messages we already have cached
-    const cachedIds = gmailCache.cachedIds;
-    const newMessageIds = messages.filter(m => !cachedIds.has(m.id));
-    const cachedMessages = messages
-      .filter(m => cachedIds.has(m.id))
-      .map(m => gmailCache.emails.get(m.id))
-      .filter(Boolean);
-    
-    // If all cached and cache not stale, return cached
-    if (newMessageIds.length === 0 && !isGmailCacheStale() && !forceRefresh) {
-      console.log('[Gmail] All emails cached, returning cached data');
+    // Ha nincs olvasatlan email, azonnal visszatérünk üres tömbbel
+    if (messages.length === 0) {
+      console.log('[Gmail] No unread emails found from API');
+      gmailCache.emails.clear();
+      gmailCache.cachedIds.clear();
       gmailCache.lastFetchTime = Date.now();
       gmailCache.fetchInProgress = false;
-      return cachedMessages;
+      return [];
     }
     
-    // Fetch only new messages (or all if stale/forced)
-    const idsToFetch = (isGmailCacheStale() || forceRefresh) ? messages : newMessageIds;
-    
-    console.log(`[Gmail] Fetching ${idsToFetch.length} emails (${newMessageIds.length} new, ${cachedMessages.length} cached)`);
+    console.log(`[Gmail] Found ${messages.length} unread emails, fetching details...`);
 
+    // Minden email részleteit lekérjük - nincs cache használat
     const detailed = await Promise.all(
-      idsToFetch.map(async (msg) => {
+      messages.map(async (msg) => {
         const full = await gmail.users.messages.get({
           userId: 'me',
           id: msg.id,
@@ -183,30 +175,30 @@ export async function getUnreadEmails(options = {}) {
           return acc;
         }, {});
 
-        const email = {
+        return {
           id: msg.id,
           from: headers['From'],
           subject: headers['Subject'] ? decodeRFC2047(headers['Subject']) : '',
           date: headers['Date'],
           snippet: full.data.snippet,
-          _cachedAt: Date.now()
         };
-        
-        // Update cache
-        gmailCache.emails.set(msg.id, email);
-        gmailCache.cachedIds.add(msg.id);
-        
-        return email;
       })
     );
-    
-    // Merge with cached
-    const allEmails = [...detailed, ...cachedMessages];
     
     // Update timestamps
     gmailCache.lastFetchTime = Date.now();
     gmailCache.lastFullFetchTime = Date.now();
     gmailCache.fetchInProgress = false;
+    
+    console.log(`[Gmail] Successfully fetched ${detailed.length} unread emails`);
+    
+    // Cache frissítése (csak a jelenlegi olvasatlanokkal)
+    gmailCache.emails.clear();
+    gmailCache.cachedIds.clear();
+    detailed.forEach(email => {
+      gmailCache.emails.set(email.id, email);
+      gmailCache.cachedIds.add(email.id);
+    });
 
     // Apply explicit fromDate post-filter: keep emails whose Date header is >= start of fromDate
     try {
@@ -219,24 +211,24 @@ export async function getUnreadEmails(options = {}) {
         const startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
         // Normalize to start of day
         startDate.setHours(0, 0, 0, 0);
-        const filtered = allEmails.filter(d => {
+        const filtered = detailed.filter(d => {
           try {
             const msgDate = d.date ? new Date(d.date) : null;
             return msgDate && !isNaN(msgDate) && msgDate >= startDate;
           } catch (e) { return false; }
         });
         return filtered;
+      }
+    } catch (e) {
+      console.error('[AIServiceApp][gmail.js] settings.json read error (post-filter):', e.message);
     }
-  } catch (e) {
-    console.error('[AIServiceApp][gmail.js] settings.json read error (post-filter):', e.message);
-  }
 
-  return allEmails;
+    return detailed;
   } catch (fetchError) {
     console.error('[Gmail] Fetch error:', fetchError);
     gmailCache.fetchInProgress = false;
-    // Return cached on error
-    return getCachedGmailEmails();
+    // Return empty on error - ne adjunk vissza régi cache-t
+    return [];
   }
 }
 

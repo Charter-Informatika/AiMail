@@ -671,18 +671,32 @@ class SmtpEmailHandler {
             }
 
             if (!results.length) {
+              // Nincs olvasatlan email - tisztítsuk a cache-t is
+              console.log('[SmtpEmailHandler] No unread emails, clearing cache');
+              this._emailCache.clear();
+              this._cachedIds.clear();
               this._lastFetchTime = Date.now();
               this._fetchInProgress = false;
               return resolve([]);
             }
 
             const limited = results.slice(-50);
+            const currentUnreadIds = new Set(limited.map(id => String(id)));
+            
+            // FONTOS: Távolítsuk el a cache-ből azokat az emaileket, amik már nem olvasatlanok
+            // Ez megakadályozza, hogy a korábban cache-elt de már olvasott emailek megjelenjenek
+            for (const cachedId of this._cachedIds) {
+              if (!currentUnreadIds.has(String(cachedId))) {
+                console.log(`[SmtpEmailHandler] Removing read email from cache: ${cachedId}`);
+                this._emailCache.delete(String(cachedId));
+                this._cachedIds.delete(cachedId);
+              }
+            }
             
             // Check which emails we already have cached
-            const cachedIds = new Set([...this._cachedIds].map(id => String(id)));
-            const newIds = limited.filter(id => !cachedIds.has(String(id)));
+            const newIds = limited.filter(id => !this._cachedIds.has(String(id)));
             const cachedEmails = limited
-              .filter(id => cachedIds.has(String(id)))
+              .filter(id => this._cachedIds.has(String(id)))
               .map(id => this._emailCache.get(String(id)))
               .filter(Boolean);
             

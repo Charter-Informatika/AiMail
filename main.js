@@ -203,6 +203,63 @@ async function getEmailByIdBasedOnProvider(id) {
 }
 
 // =============================================================================
+// EMAIL FILTERING
+// =============================================================================
+
+// Közös spam és ignored email szűrő függvény - használható mindenhol a konzisztencia érdekében
+const SPAM_KEYWORDS = ['hirlevel', 'no-reply', 'noreply', 'no reply', 'spam', 'junk', 'promóció', 'reklám', 'ad', 'free money', 'guaranteed', 'amazing deal', 'act now', 'limited time', 'click here', 'buy now'];
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SPAM_REGEXES = SPAM_KEYWORDS.map(k => new RegExp(`\\b${escapeRegExp(k)}\\b`, 'i'));
+
+/**
+ * Szűri az emaileket a spam kulcsszavak és az ignorált email címek alapján.
+ * @param {Array} emails - Az emailek tömbje
+ * @param {Array} ignoredEmailsList - Az ignorált email címek listája (már kisbetűsítve és trim-elve)
+ * @returns {Array} - A szűrt emailek tömbje
+ */
+function filterEmails(emails, ignoredEmailsList = []) {
+  if (!Array.isArray(emails)) return [];
+  
+  return emails.filter(email => {
+    const subject = (email.subject || '').toLowerCase();
+    const from = (email.from || '').toLowerCase();
+
+    // Gmail spam label ellenőrzés
+    if (email.labelIds && Array.isArray(email.labelIds) && email.labelIds.includes('SPAM')) {
+      return false;
+    }
+    
+    // Spam kulcsszavak ellenőrzése
+    const matchedSpam = SPAM_REGEXES.find(rx => rx.test(email.subject || '') || rx.test(email.from || ''));
+    if (matchedSpam) {
+      return false;
+    }
+    
+    // Ignorált email címek ellenőrzése
+    const matchedIgnored = ignoredEmailsList.find(ignored => from.includes(ignored));
+    if (matchedIgnored) {
+      return false;
+    }
+    
+    return true;
+  });
+}
+
+/**
+ * Lekéri az ignorált email címek listáját a beállításokból.
+ * @returns {Array} - Az ignorált email címek tömbje (kisbetűsítve és trim-elve)
+ */
+function getIgnoredEmailsList() {
+  try {
+    const settings = getSettings();
+    return (settings.ignoredEmails || []).map(e => e.trim().toLowerCase()).filter(Boolean);
+  } catch (e) {
+    console.error('Error getting ignored emails list:', e);
+    return [];
+  }
+}
+
+// =============================================================================
 // EMAIL MONITORING
 // =============================================================================
 
@@ -251,31 +308,13 @@ async function checkEmailsOnce() {
 
     console.log('Checking emails at:', currentTimeString);
 
-    // SPAM + IGNORED szűrés
-    const spamKeywords = ['hirlevel', 'no-reply','noreply','no reply','spam', 'junk', 'promóció', 'reklám', 'ad', 'free money', "guaranteed", "amazing deal", "act now", "limited time", "click here", "buy now"];
+    // Email lekérése a provider-től
     let unreadEmails = await getEmailsBasedOnProvider();
-    const ignoredEmailsList = (settings.ignoredEmails || []).map(e => e.trim().toLowerCase()).filter(Boolean);
-    const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const spamRegexes = spamKeywords.map(k => new RegExp(`\\b${escapeRegExp(k)}\\b`, 'i'));
-
     const beforeCount = unreadEmails.length;
-    unreadEmails = unreadEmails.filter(email => {
-      const subject = (email.subject || '').toLowerCase();
-      const from = (email.from || '').toLowerCase();
-
-      if (email.labelIds && Array.isArray(email.labelIds) && email.labelIds.includes('SPAM')) {
-        return false;
-      }
-      const matchedSpam = spamRegexes.find(rx => rx.test(email.subject || '') || rx.test(email.from || ''));
-      if (matchedSpam) {
-        return false;
-      }
-      const matchedIgnored = ignoredEmailsList.find(ignored => from.includes(ignored));
-      if (matchedIgnored) {
-        return false;
-      }
-      return true;
-    });
+    
+    // Közös szűrő függvény használata a spam és ignorált emailek kiszűrésére
+    const ignoredEmailsList = getIgnoredEmailsList();
+    unreadEmails = filterEmails(unreadEmails, ignoredEmailsList);
 
     console.log('Fetched emails (spam+ignored szűrve):', unreadEmails.length, `(before: ${beforeCount})`);
 
@@ -1132,19 +1171,38 @@ ipcMain.handle('show-directory-dialog', async () => {
 // Email handlers
 ipcMain.handle('get-unread-emails', async () => {
   try {
-    const cached = readCachedEmails();
-    if (cached && Array.isArray(cached) && cached.length > 0) {
-      return cached;
-    }
     const authState = getAuthState();
+    const ignoredEmailsList = getIgnoredEmailsList();
+    
+    // MINDIG frissen fetch-eljünk a provider-től (Gmail/SMTP)
+    // A provider saját maga kezeli a throttling-ot és cache-t
     if (authState.provider === 'gmail' || authState.provider === 'smtp') {
       const emails = await getEmailsBasedOnProvider();
-      saveCachedEmails(emails);
-      return emails;
+      const filteredEmails = filterEmails(emails, ignoredEmailsList);
+      console.log(`[get-unread-emails] Fetched ${filteredEmails.length} emails (${emails.length} before filter)`);
+      saveCachedEmails(filteredEmails);
+      return filteredEmails;
     }
+    
+    // Fallback: ha nincs provider, próbáljuk a cache-t
+    const cached = readCachedEmails();
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      const filteredCached = filterEmails(cached, ignoredEmailsList);
+      console.log(`[get-unread-emails] Returning ${filteredCached.length} cached emails (no provider)`);
+      return filteredCached;
+    }
+    
+    return [];
   } catch (error) {
     console.error('Hiba az emailek lekérésekor:', error);
-    throw error;
+    // Hiba esetén próbáljuk a cache-t visszaadni
+    try {
+      const cached = readCachedEmails();
+      const ignoredEmailsList = getIgnoredEmailsList();
+      return filterEmails(cached || [], ignoredEmailsList);
+    } catch {
+      return [];
+    }
   }
 });
 

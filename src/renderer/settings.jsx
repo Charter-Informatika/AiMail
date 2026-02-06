@@ -153,7 +153,6 @@ const getTodayISO = () => {
 const themeOptions = [
   { value: 'black', label: 'Sötét (Alapértelmezett)' },
   { value: 'purple', label: 'Lila' },
-  { value: 'light', label: 'Fehér' },
   { value: 'red', label: 'Piros' },
   { value: 'blue', label: 'Kék' },
 ];
