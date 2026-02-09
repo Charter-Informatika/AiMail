@@ -688,7 +688,7 @@ async function generateReply(email) {
       .replace('{embeddingsContext}', embeddingsContext || '');
 
     // AI hívás - local-ai-helper használata (először helyi AI, utána OpenAI fallback)
-    const systemPrompt = "Te egy segítőkész asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek. Az Excel adatokat és a megadott html-ről szerzett információkat használd fel a válaszadáshoz, ha releváns információt találsz bennük. Elsődlegesen a levél tartalma alapján válaszolj.";
+    const systemPrompt = "Te egy asszisztens vagy, aki udvarias és professzionális válaszokat ír az ügyfeleknek hivatalos levelezési formátumban. Ha találsz excel adatokat és a megadott html-ről szerzett információkat, akkor használd fel a válaszadáshoz, de csak ha releváns információt találsz bennük. Elsődlegesen a bejövő levél tartalma alapján válaszolj.";
 
     let messageContent = null;
 

@@ -5,8 +5,9 @@ import { getSecret } from '../utils/keytarHelper.js';
 const OLLAMA_BASE_URL = 'http://192.168.88.12:11434';
 const OLLAMA_TIMEOUT_MS = 30000;
 
-
-const LOCAL_CHAT_MODEL = 'llama3.1:8b';
+const LOCAL_CHAT_MODEL = 'mistral:7b-instruct';
+//const LOCAL_CHAT_MODEL = 'qwen3:14b';
+//const LOCAL_CHAT_MODEL = 'llama3.1:8b';
 const LOCAL_VISION_MODEL = 'llava:7b'; 
 const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text:latest'; 
 
@@ -305,84 +306,6 @@ async function createEmbeddingsBatch(inputs, batchSize = 100) {
 
   return results;
 }
-
-/**
- * Letölthető helyi modellek listája
- */
-const RECOMMENDED_LOCAL_MODELS = {
-  chat: [
-    {
-      name: 'llama3.1:8b',
-      description: 'Meta Llama 3.1 8B - Kiváló általános célú modell',
-      size: '~4.7GB',
-      command: 'ollama pull llama3.1:8b'
-    },
-    {
-      name: 'llama3.1:70b',
-      description: 'Meta Llama 3.1 70B - Nagy teljesítményű modell (erős GPU szükséges)',
-      size: '~40GB',
-      command: 'ollama pull llama3.1:70b'
-    },
-    {
-      name: 'mistral:7b',
-      description: 'Mistral 7B - Gyors és hatékony modell',
-      size: '~4.1GB',
-      command: 'ollama pull mistral:7b'
-    },
-    {
-      name: 'gemma2:9b',
-      description: 'Google Gemma 2 9B - Modern, hatékony modell',
-      size: '~5.5GB',
-      command: 'ollama pull gemma2:9b'
-    },
-    {
-      name: 'qwen2.5:7b',
-      description: 'Alibaba Qwen 2.5 7B - Többnyelvű támogatás',
-      size: '~4.4GB',
-      command: 'ollama pull qwen2.5:7b'
-    }
-  ],
-  vision: [
-    {
-      name: 'llava:13b',
-      description: 'LLaVA 13B - Képfelismerés és leírás',
-      size: '~8GB',
-      command: 'ollama pull llava:13b'
-    },
-    {
-      name: 'llava:7b',
-      description: 'LLaVA 7B - Könnyebb képfelismerő modell',
-      size: '~4.5GB',
-      command: 'ollama pull llava:7b'
-    },
-    {
-      name: 'bakllava',
-      description: 'BakLLaVA - Alternatív képfelismerő',
-      size: '~4.5GB',
-      command: 'ollama pull bakllava'
-    }
-  ],
-  embedding: [
-    {
-      name: 'nomic-embed-text',
-      description: 'Nomic Embed Text - Gyors és hatékony embedding modell',
-      size: '~274MB',
-      command: 'ollama pull nomic-embed-text'
-    },
-    {
-      name: 'mxbai-embed-large',
-      description: 'MixedBread Embed Large - Nagy pontosságú embedding',
-      size: '~670MB',
-      command: 'ollama pull mxbai-embed-large'
-    },
-    {
-      name: 'all-minilm',
-      description: 'All-MiniLM - Könnyű, gyors embedding modell',
-      size: '~45MB',
-      command: 'ollama pull all-minilm'
-    }
-  ]
-};
 
 export {
   chatCompletion,
