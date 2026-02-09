@@ -209,6 +209,10 @@ async function getEmailsBasedOnProvider() {
 
   if (authState.provider === 'smtp') {
     console.log('Fetching emails using SMTP provider...');
+    if (!smtpHandler || !smtpHandler.imap) {
+      console.warn('[getEmailsBasedOnProvider] SMTP handler not ready, returning empty');
+      return [];
+    }
     emails = await smtpHandler.getUnreadEmails();
   } else if (authState.provider === 'gmail') {
     console.log('Fetching emails using Gmail provider...');
@@ -1467,7 +1471,10 @@ ipcMain.handle('check-auth-status', async () => {
 
 ipcMain.handle('logout', async () => {
   try {
-    if (smtpHandler) smtpHandler = null;
+    if (smtpHandler) {
+      try { await smtpHandler.disconnect(); } catch (e) { console.warn('Error disconnecting SMTP on logout:', e); }
+      smtpHandler = null;
+    }
     stopEmailMonitoring();
     
     if (activationEmail) {

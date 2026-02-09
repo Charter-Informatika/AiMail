@@ -5,8 +5,7 @@ import { getSecret } from '../utils/keytarHelper.js';
 const OLLAMA_BASE_URL = 'http://192.168.88.12:11434';
 const OLLAMA_TIMEOUT_MS = 30000;
 
-const LOCAL_CHAT_MODEL = 'mistral:7b-instruct';
-//const LOCAL_CHAT_MODEL = 'qwen3:14b';
+const LOCAL_CHAT_MODEL = 'INSERT MODEL NAME HERE';
 //const LOCAL_CHAT_MODEL = 'llama3.1:8b';
 const LOCAL_VISION_MODEL = 'llava:7b'; 
 const LOCAL_EMBEDDING_MODEL = 'nomic-embed-text:latest'; 

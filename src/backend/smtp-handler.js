@@ -271,6 +271,8 @@ class SmtpEmailHandler {
     this.maxReconnectAttempts = 5;
     this.keepaliveInterval = null;
     this.onMailCallback = null;
+    this._intentionalDisconnect = false;
+    this._isConnecting = false;
     
     // Email caching to reduce IMAP fetches
     this._emailCache = new Map(); 
@@ -318,6 +320,12 @@ class SmtpEmailHandler {
 
   async connect() {
     try {
+      // Reset reconnection state for clean start
+      this.isReconnecting = false;
+      this.reconnectAttempts = 0;
+      this._intentionalDisconnect = false;
+      this._isConnecting = true;
+
       console.log('Creating SMTP transport with config:', {
         host: this.config.smtpHost,
         port: this.config.smtpPort,
@@ -364,16 +372,20 @@ class SmtpEmailHandler {
       await this.testImapConnection();
       console.log('IMAP connection test successful');
       
+      this._isConnecting = false;
       return true;
     } catch (error) {
       console.error('Kapcsolódási hiba:', error);
       if (error.code) console.error('Error code:', error.code);
       if (error.command) console.error('Failed command:', error.command);
+      this._isConnecting = false;
       return false;
     }
   }
 
   async disconnect() {
+    this._intentionalDisconnect = true;
+
     if (this.keepaliveInterval) {
       clearInterval(this.keepaliveInterval);
       this.keepaliveInterval = null;
@@ -381,45 +393,42 @@ class SmtpEmailHandler {
 
     if (this.imap && this.imap.state !== 'disconnected') {
       try {
+        // Save reference and remove all event listeners BEFORE ending connection
+        // to prevent handleDisconnect() from being triggered during intentional disconnect
+        const imapRef = this.imap;
+        imapRef.removeAllListeners('close');
+        imapRef.removeAllListeners('error');
+        imapRef.removeAllListeners('end');
+        imapRef.removeAllListeners('mail');
+
         await new Promise((resolve) => {
-          const cleanup = () => {
-            try {
-              if (this.imap) {
-                this.imap.removeAllListeners();
-              }
-            } catch (err) {
-              console.error('Error removing listeners:', err);
-            }
-            resolve();
-          };
-          
-          // Set timeout to prevent hanging
           const timeoutId = setTimeout(() => {
             console.log('Disconnect timeout - forcing cleanup');
-            cleanup();
+            resolve();
           }, 5000);
           
-          this.imap.once('end', () => {
+          imapRef.once('end', () => {
             clearTimeout(timeoutId);
-            cleanup();
+            resolve();
           });
           
-          this.imap.once('close', () => {
+          imapRef.once('close', () => {
             clearTimeout(timeoutId);
-            cleanup();
+            resolve();
           });
           
-          this.imap.once('error', (err) => {
+          imapRef.once('error', (err) => {
             console.error('Error during disconnect:', err);
             clearTimeout(timeoutId);
-            cleanup();
+            resolve();
           });
           
           try {
-            this.imap.end();
+            imapRef.end();
           } catch (err) {
             console.error('Error ending connection:', err);
-            cleanup();
+            clearTimeout(timeoutId);
+            resolve();
           }
         });
       } catch (error) {
@@ -429,6 +438,7 @@ class SmtpEmailHandler {
     
     // Always ensure imap is nullified at the end
     this.imap = null;
+    this._intentionalDisconnect = false;
   }
 
   async setupImap() {
@@ -456,6 +466,11 @@ class SmtpEmailHandler {
       // Set up error handler first
       this.imap.on('error', async (err) => {
         console.error('IMAP error:', err);
+        if (this._intentionalDisconnect) return;
+        if (this._isConnecting) {
+          console.log('IMAP error during connect(), letting connect() handle it');
+          return;
+        }
         if (err.source === 'timeout' || err.code === 'EAUTH') {
           console.log('Authentication or timeout error, attempting reconnect...');
           await this.handleDisconnect();
@@ -466,6 +481,14 @@ class SmtpEmailHandler {
 
       // Handle unexpected disconnections
       this.imap.on('close', async () => {
+        if (this._intentionalDisconnect) {
+          console.log('IMAP connection closed (intentional)');
+          return;
+        }
+        if (this._isConnecting) {
+          console.log('IMAP close during connect(), letting connect() handle it');
+          return;
+        }
         console.log('IMAP connection closed unexpectedly');
         await this.handleDisconnect();
       });
@@ -524,7 +547,7 @@ class SmtpEmailHandler {
         });
       };
       
-      if (this.imap.state === 'authenticated' || this.imap.state === 'selected' || this.imap.state === 'connected') {
+      if (this.imap.state === 'authenticated' || this.imap.state === 'selected') {
         openAndIdle();
       } else {
         this.imap.once('ready', openAndIdle);
@@ -564,6 +587,13 @@ class SmtpEmailHandler {
         
         await this.setupImap();
         await this.testImapConnection();
+        
+        // Re-open INBOX after successful reconnection
+        try {
+          await this.startIdleMonitoring();
+        } catch (idleErr) {
+          console.warn('Could not re-start IDLE monitoring after reconnect:', idleErr);
+        }
         
         console.log('Reconnection successful');
         this.reconnectAttempts = 0;
@@ -797,12 +827,14 @@ class SmtpEmailHandler {
           });
         };
 
-        if (this.imap.state === 'authenticated' || this.imap.state === 'selected' || this.imap.state === 'connected') {
+        if (this.imap.state === 'authenticated' || this.imap.state === 'selected') {
           openInbox(processMailbox);
         } else {
           this.imap.once('ready', () => openInbox(processMailbox));
           this.imap.once('error', reject);
-          this.imap.connect();
+          if (this.imap.state === 'disconnected') {
+            this.imap.connect();
+          }
         }
       } catch (err) {
         return reject(err);
@@ -1166,12 +1198,14 @@ class SmtpEmailHandler {
           });
         };
 
-        if (this.imap.state === 'authenticated' || this.imap.state === 'selected' || this.imap.state === 'connected') {
+        if (this.imap.state === 'authenticated' || this.imap.state === 'selected') {
           openInbox(processMailbox);
         } else {
           this.imap.once('ready', () => openInbox(processMailbox));
           this.imap.once('error', reject);
-          this.imap.connect();
+          if (this.imap.state === 'disconnected') {
+            this.imap.connect();
+          }
         }
       } catch (err) {
         return reject(err);
@@ -1222,12 +1256,14 @@ class SmtpEmailHandler {
           });
         };
 
-        if (this.imap.state === 'connected') {
+        if (this.imap.state === 'authenticated' || this.imap.state === 'selected') {
           markRead();
         } else {
           this.imap.once('ready', markRead);
           this.imap.once('error', reject);
-          this.imap.connect();
+          if (this.imap.state === 'disconnected') {
+            this.imap.connect();
+          }
         }
       } catch (err) {
         if (err instanceof TypeError) {
@@ -1401,12 +1437,14 @@ class SmtpEmailHandler {
           });
         };
 
-        if (this.imap.state === 'connected' || this.imap.state === 'authenticated' || this.imap.state === 'selected') {
+        if (this.imap.state === 'authenticated' || this.imap.state === 'selected') {
           fetchEmail();
         } else {
           this.imap.once('ready', fetchEmail);
           this.imap.once('error', reject);
-          this.imap.connect();
+          if (this.imap.state === 'disconnected') {
+            this.imap.connect();
+          }
         }
       } catch (err) {
         reject(err);
