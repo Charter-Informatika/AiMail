@@ -1075,6 +1075,26 @@ const App = () => {
   };
 
   useEffect(() => {
+    // Check for persisted update state on mount
+    const checkPersistedUpdateState = async () => {
+      try {
+        if (window.api.getUpdateStatus) {
+          const status = await window.api.getUpdateStatus();
+          console.log('Persisted update status:', status);
+          if (status?.downloaded) {
+            setUpdateStatus('ready');
+            setActiveView('updateReady');
+          } else if (status?.available) {
+            setUpdateStatus('available');
+            setActiveView('updateAvailable');
+          }
+        }
+      } catch (e) {
+        console.error('Error checking update status:', e);
+      }
+    };
+    checkPersistedUpdateState();
+
     const handleUpdateAvailable = () => {
       console.log('Update available!');
       setUpdateStatus('available');
@@ -1087,12 +1107,27 @@ const App = () => {
       setActiveView('updateReady');
     };
 
+    const handleUpdateError = (errorMessage) => {
+      console.error('Update error:', errorMessage);
+      setUpdateStatus('error');
+      // Optionally show error to user
+    };
+
+    const handleDownloadProgress = (progress) => {
+      console.log('Download progress:', progress);
+      // Could be used to show progress bar
+    };
+
     window.api.onUpdateAvailable(handleUpdateAvailable);
     window.api.onUpdateReady(handleUpdateReady);
+    window.api.onUpdateError && window.api.onUpdateError(handleUpdateError);
+    window.api.onUpdateDownloadProgress && window.api.onUpdateDownloadProgress(handleDownloadProgress);
 
     return () => {
-      window.api.removeUpdateDownloadProgressListener(handleUpdateAvailable);
-      window.api.removeUpdateDownloadProgressListener(handleUpdateReady);
+      window.api.removeUpdateAvailableListener && window.api.removeUpdateAvailableListener();
+      window.api.removeUpdateReadyListener && window.api.removeUpdateReadyListener();
+      window.api.removeUpdateErrorListener && window.api.removeUpdateErrorListener();
+      window.api.removeUpdateDownloadProgressListener && window.api.removeUpdateDownloadProgressListener();
     };
   }, []);
 

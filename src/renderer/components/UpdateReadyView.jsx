@@ -4,10 +4,19 @@ import { Box, Typography, Button } from "@mui/material";
 const UpdateReadyView = ({ onClose }) => {
 
   const handleRestart = () => {
-    window.api.restartApp();
+    // Use handleUpdateAction for proper update installation
+    if (window.api.handleUpdateAction) {
+      window.api.handleUpdateAction('install');
+    } else {
+      window.api.restartApp();
+    }
   }
 
   const handleClose = () => {
+    // Notify main process that user chose to update later
+    if (window.api.handleUpdateAction) {
+      window.api.handleUpdateAction('later');
+    }
     if (onClose) {
       onClose();
     }

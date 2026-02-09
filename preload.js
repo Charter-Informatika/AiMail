@@ -99,21 +99,42 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.send(channel, message);
   },
   onUpdateDownloadProgress: (callback) => {
-    ipcRenderer.on('update-download-progress', (_, progress) => callback(progress));
+    const handler = (_, progress) => callback(progress);
+    ipcRenderer.on('update-download-progress', handler);
+    return handler;
   },
 
-  removeUpdateDownloadProgressListener: (callback) => {
-    ipcRenderer.removeListener('update-download-progress', callback);
+  removeUpdateDownloadProgressListener: () => {
+    ipcRenderer.removeAllListeners('update-download-progress');
   },
   onUpdateAvailable: (callback) => {
-    ipcRenderer.on('update-ava', () => callback());
+    const handler = () => callback();
+    ipcRenderer.on('update-ava', handler);
+    return handler;
+  },
+  removeUpdateAvailableListener: () => {
+    ipcRenderer.removeAllListeners('update-ava');
   },
   onUpdateReady: (callback) => {
-    ipcRenderer.on('update-ready', () => callback());
+    const handler = () => callback();
+    ipcRenderer.on('update-ready', handler);
+    return handler;
+  },
+  removeUpdateReadyListener: () => {
+    ipcRenderer.removeAllListeners('update-ready');
+  },
+  onUpdateError: (callback) => {
+    const handler = (_, errorMessage) => callback(errorMessage);
+    ipcRenderer.on('update-error', handler);
+    return handler;
+  },
+  removeUpdateErrorListener: () => {
+    ipcRenderer.removeAllListeners('update-error');
   },
   handleUpdateAction: (action) => {
-    ipcRenderer.invoke('handle-update-action', action);
+    return ipcRenderer.invoke('handle-update-action', action);
   },
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
   restartApp: () => ipcRenderer.invoke('restart-app'),
   readGeneratedReplies: () => ipcRenderer.invoke('read-generated-replies'),
   saveGeneratedReplies: (replies) => ipcRenderer.invoke('save-generated-replies', replies),

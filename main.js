@@ -7,6 +7,68 @@ import { google } from 'googleapis';
 import updaterPkg from "electron-updater";
 const { autoUpdater } = updaterPkg;
 
+// Update state management
+let updateState = {
+  available: false,
+  downloaded: false,
+  downloadProgress: 0,
+  error: null
+};
+let pendingUpdateEvents = [];
+
+function getUpdateStateFile() {
+  return path.join(app.getPath('userData'), 'update-state.json');
+}
+
+function loadUpdateState() {
+  try {
+    const stateFile = getUpdateStateFile();
+    if (fs.existsSync(stateFile)) {
+      const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+      updateState = { ...updateState, ...data };
+      console.log('Loaded update state:', updateState);
+    }
+  } catch (e) {
+    console.error('Error loading update state:', e);
+  }
+}
+
+function saveUpdateState() {
+  try {
+    fs.writeFileSync(getUpdateStateFile(), JSON.stringify(updateState, null, 2));
+  } catch (e) {
+    console.error('Error saving update state:', e);
+  }
+}
+
+function clearUpdateState() {
+  updateState = { available: false, downloaded: false, downloadProgress: 0, error: null };
+  try {
+    const stateFile = getUpdateStateFile();
+    if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
+  } catch (e) {
+    console.error('Error clearing update state:', e);
+  }
+}
+
+function sendUpdateEvent(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, data);
+  } else {
+    pendingUpdateEvents.push({ channel, data });
+  }
+}
+
+function flushPendingUpdateEvents() {
+  if (mainWindow && !mainWindow.isDestroyed() && pendingUpdateEvents.length > 0) {
+    console.log(`Flushing ${pendingUpdateEvents.length} pending update events`);
+    for (const event of pendingUpdateEvents) {
+      mainWindow.webContents.send(event.channel, event.data);
+    }
+    pendingUpdateEvents = [];
+  }
+}
+
 import { findFile } from './src/utils/findFile.js';
 import { getSecret } from './src/utils/keytarHelper.js';
 import { getUnreadEmails, getEmailById, getRecentEmails } from './gmail.js';
@@ -1463,7 +1525,44 @@ ipcMain.handle('get-activation-email', async () => getSetting('activationEmail',
 // Misc handlers
 ipcMain.handle('check-internet', async () => checkInternetConnection());
 ipcMain.handle('exit-app', () => app.quit());
-ipcMain.handle('restart-app', () => { app.relaunch(); app.exit(0); });
+ipcMain.handle('restart-app', () => {
+  // Use quitAndInstall if update is downloaded, otherwise just relaunch
+  if (updateState.downloaded) {
+    console.log('Installing update and restarting...');
+    clearUpdateState();
+    autoUpdater.quitAndInstall(false, true);
+  } else {
+    app.relaunch();
+    app.exit(0);
+  }
+});
+
+// Update action handlers
+ipcMain.handle('handle-update-action', async (event, action) => {
+  console.log('Update action:', action);
+  switch (action) {
+    case 'install':
+      if (updateState.downloaded) {
+        clearUpdateState();
+        autoUpdater.quitAndInstall(false, true);
+      }
+      break;
+    case 'later':
+      // User chose to update later, just close the notification
+      break;
+    case 'check':
+      // Manually check for updates
+      autoUpdater.checkForUpdatesAndNotify();
+      break;
+    default:
+      console.log('Unknown update action:', action);
+  }
+  return true;
+});
+
+ipcMain.handle('get-update-status', async () => {
+  return updateState;
+});
 
 ipcMain.handle('set-view', async (event, view) => {
   if (!mainWindow) return false;
@@ -1564,34 +1663,76 @@ app.whenReady().then(async () => {
   const authState = getAuthState();
   console.log('Initial auth state:', authState);
 
-  autoUpdater.checkForUpdatesAndNotify();
+  // Load persisted update state
+  loadUpdateState();
+  
+  // Configure autoUpdater
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoRunAppAfterInstall = true;
+  
+  // If update was previously downloaded, notify the renderer
+  if (updateState.downloaded) {
+    console.log('Previously downloaded update found, notifying renderer...');
+    // Wait for window to be ready before sending
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        sendUpdateEvent('update-ready');
+      }, 1000);
+    });
+  }
+  
+  // Check for updates (won't re-download if already downloaded)
+  autoUpdater.checkForUpdatesAndNotify().catch(err => {
+    console.error('Error checking for updates:', err);
+  });
 
-  autoUpdater.on('update-available', () => {
-    console.log('Frissítés elérhető!');
-    if (mainWindow) mainWindow.webContents.send('update-ava');
+  autoUpdater.on('checking-for-update', () => {
+    console.log('Frissítések keresése...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('Frissítés elérhető!', info?.version);
+    updateState.available = true;
+    updateState.error = null;
+    saveUpdateState();
+    sendUpdateEvent('update-ava');
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('Nincs elérhető frissítés.', info?.version);
+    // Clear state if no update available (maybe user already updated)
+    if (updateState.available && !updateState.downloaded) {
+      clearUpdateState();
+    }
   });
 
   autoUpdater.on('download-progress', (progressTrack) => {
-    console.log(`Frissítés letöltése: ${progressTrack.percent}%`);
-    if (mainWindow) mainWindow.webContents.send('update-download-progress', progressTrack.percent);
+    const percent = Math.round(progressTrack.percent);
+    console.log(`Frissítés letöltése: ${percent}%`);
+    updateState.downloadProgress = percent;
+    sendUpdateEvent('update-download-progress', percent);
   });
 
-  autoUpdater.on('update-downloaded', () => {
-    console.log('Frissítés letöltve!');
-    if (mainWindow) mainWindow.webContents.send('update-ready');
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('Frissítés letöltve!', info?.version);
+    updateState.downloaded = true;
+    updateState.downloadProgress = 100;
+    updateState.error = null;
+    saveUpdateState();
+    sendUpdateEvent('update-ready');
   });
 
   autoUpdater.on('error', (err) => {
     console.error('Frissítési hiba:', err);
-    if (mainWindow) {
-      mainWindow.webContents.send('update-error', err.message);
-      dialog.showMessageBox(mainWindow, {
-        type: 'error',
-        title: 'Frissítési hiba',
-        message: `Hiba történt a frissítés során: ${err.message}`,
-        buttons: ['OK']
-      });
-    }
+    updateState.error = err.message;
+    saveUpdateState();
+    sendUpdateEvent('update-error', err.message);
+  });
+  
+  // Flush any pending events when mainWindow is ready
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(() => flushPendingUpdateEvents(), 500);
   });
 
   if (authState.isAuthenticated) {
