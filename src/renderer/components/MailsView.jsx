@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Button, TextField } from '@mui/material';
+import { Box, Typography, Paper, Button, TextField, IconButton } from '@mui/material';
 import CenteredLoading from './CenteredLoading';
+import ImportExportIcon from '@mui/icons-material/ImportExport';
 
 const MailsView = ({ showSnackbar }) => {
   const [emails, setEmails] = useState([]);
@@ -16,6 +17,7 @@ const MailsView = ({ showSnackbar }) => {
   const [ignoredEmails, setIgnoredEmails] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [search, setSearch] = useState('');
+  const [sortOrder, setSortOrder] = useState('desc'); 
 
   // Built-in patterns we want to auto-ignore in addition to user-provided list
   const ignoredPatterns = ['no-reply', 'noreply', 'spam', 'do-not-reply'];
@@ -200,7 +202,15 @@ const MailsView = ({ showSnackbar }) => {
       console.log('Filtered out email:', email);
     }
     return matches;
+  }).sort((a, b) => {
+    const dateA = a.date ? new Date(a.date).getTime() : 0;
+    const dateB = b.date ? new Date(b.date).getTime() : 0;
+    return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
   });
+
+  const handleToggleSortOrder = () => {
+    setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+  };
 
   console.log('Filtered emails for display:', filteredEmails);
 
@@ -310,23 +320,39 @@ const MailsView = ({ showSnackbar }) => {
       >
         Beérkezett levelek
       </Typography>
-      <TextField
-        label="Keresés a beérkezett levelekben"
-        variant="outlined"
-        fullWidth
-        sx={{ 
-          mb: 3,
-          '& .MuiOutlinedInput-root': {
-            background: 'rgba(99, 102, 241, 0.05)',
-            transition: 'all 0.2s ease',
-            '&:hover': {
-              background: 'rgba(99, 102, 241, 0.08)',
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+        <TextField
+          label="Keresés a beérkezett levelekben"
+          variant="outlined"
+          fullWidth
+          sx={{ 
+            '& .MuiOutlinedInput-root': {
+              background: 'rgba(99, 102, 241, 0.05)',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(99, 102, 241, 0.08)',
+              },
             },
-          },
-        }}
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+          }}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <IconButton 
+            onClick={handleToggleSortOrder}
+            sx={{
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              borderRadius: 2,
+              p: 1.5,
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(99, 102, 241, 0.1)',
+                borderColor: 'rgba(99, 102, 241, 0.5)',
+              },
+            }}
+          >
+            <ImportExportIcon sx={{ transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+          </IconButton>
+      </Box>
       <Box sx={{ 
         overflowY: 'auto',
         flex: 1,

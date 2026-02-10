@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Button, TextField } from '@mui/material';
+import { Box, Typography, Paper, Button, TextField, IconButton } from '@mui/material';
 import CenteredLoading from './CenteredLoading';
 import { useTheme } from '@mui/material/styles';
+import ImportExportIcon from '@mui/icons-material/ImportExport';
 
 const SentMailsView = ({ showSnackbar }) => {
   const theme = useTheme();
@@ -9,6 +10,7 @@ const SentMailsView = ({ showSnackbar }) => {
   const [loading, setLoading] = useState(true);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [search, setSearch] = useState('');
+  const [sortOrder, setSortOrder] = useState('desc');
 
   useEffect(() => {
     window.api.readSentEmailsLog?.()
@@ -34,6 +36,10 @@ const SentMailsView = ({ showSnackbar }) => {
       (dateStr && dateStr.includes(q))
     );
   });
+
+  const handleToggleSortOrder = () => {
+    setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+  };
 
   if (loading) return <CenteredLoading />;
 
@@ -149,23 +155,39 @@ const SentMailsView = ({ showSnackbar }) => {
       >
         Elküldött levelek
       </Typography>
-      <TextField
-        label="Keresés az elküldött levelekben"
-        variant="outlined"
-        fullWidth
-        sx={{ 
-          mb: 3,
-          '& .MuiOutlinedInput-root': {
-            background: 'rgba(99, 102, 241, 0.15)',
-            transition: 'all 0.2s ease',
-            '&:hover': {
-              background: 'rgba(99, 102, 241, 0.08)',
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+        <TextField
+          label="Keresés a beérkezett levelekben"
+          variant="outlined"
+          fullWidth
+          sx={{ 
+            '& .MuiOutlinedInput-root': {
+              background: 'rgba(99, 102, 241, 0.05)',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(99, 102, 241, 0.08)',
+              },
             },
-          },
-        }}
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+          }}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <IconButton 
+            onClick={handleToggleSortOrder}
+            sx={{
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              borderRadius: 2,
+              p: 1.5,
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(99, 102, 241, 0.1)',
+                borderColor: 'rgba(99, 102, 241, 0.5)',
+              },
+            }}
+          >
+            <ImportExportIcon sx={{ transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+          </IconButton>
+      </Box>
       <Box sx={{ 
         overflowY: 'auto',
         flex: 1,
