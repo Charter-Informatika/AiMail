@@ -1668,9 +1668,7 @@ app.whenReady().then(async () => {
   startInternetMonitoring();
   
   const authState = getAuthState();
-  console.log('Initial auth state:', authState);
-
-  // Load persisted update state
+2  // Load persisted update state
   loadUpdateState();
   
   // Configure autoUpdater

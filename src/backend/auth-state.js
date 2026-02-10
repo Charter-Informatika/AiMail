@@ -22,7 +22,6 @@ export function loadAuthState() {
     if (fs.existsSync(authStateFile)) {
       const data = fs.readFileSync(authStateFile, 'utf-8');
       authState = JSON.parse(data);
-      console.log('Auth state loaded:', authState);
     }
   } catch (err) {
     console.error('Hiba az authentikációs állapot betöltésekor:', err);

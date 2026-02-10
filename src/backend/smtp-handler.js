@@ -456,7 +456,7 @@ class SmtpEmailHandler {
           rejectUnauthorized: false
         },
         keepalive: true,
-        debug: console.log,
+        debug: false,
         authTimeout: 60000,
         connTimeout: 60000,
         socketTimeout: 0,
