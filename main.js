@@ -1447,8 +1447,9 @@ ipcMain.handle('login-with-smtp', async (event, config) => {
 
 ipcMain.handle('login-with-web-account', async (event, { email, password }) => {
   try {
-    const serverUrl = (await getSecret('API_BASE_URL')) || 'https://okosmail.hu';
-    const endpoint = `${serverUrl.replace(/\/+$/, '')}/api/desktop/login`;
+    const serverUrl = (await getSecret('API_BASE_URL')) || 'https://okosmail.hu/api';
+    const trimmed = serverUrl.replace(/\/+$/, '');
+    const endpoint = trimmed.endsWith('/api') ? `${trimmed}/desktop/login` : `${trimmed}/api/desktop/login`;
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
