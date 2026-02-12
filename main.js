@@ -1450,16 +1450,30 @@ ipcMain.handle('login-with-web-account', async (event, { email, password }) => {
     const serverUrl = (await getSecret('API_BASE_URL')) || 'https://okosmail.hu/api';
     const trimmed = serverUrl.replace(/\/+$/, '');
     const endpoint = trimmed.endsWith('/api') ? `${trimmed}/desktop/login` : `${trimmed}/api/desktop/login`;
+
+    console.log('[desktop-login] endpoint:', endpoint);
+    console.log('[desktop-login] email:', email, 'passwordMask:', typeof password === 'string' ? '*'.repeat(Math.min(6, password.length)) : '<null>');
+
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
-      timeout: 15000,
+      // Note: some fetch implementations ignore `timeout`; handled externally if needed
     });
 
-    const data = await res.json();
+    console.log('[desktop-login] response status:', res.status);
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      console.error('[desktop-login] failed to parse JSON response', e);
+    }
+
+    console.log('[desktop-login] response body:', data);
+
     if (res.ok && data?.success && data.token) {
       await setSecret('DESKTOP_SESSION_TOKEN', data.token);
+      console.log('[desktop-login] token stored');
       return true;
     }
 
