@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
   // Authentikációs funkciók
   checkAuthStatus: () => ipcRenderer.invoke('check-auth-status'),
   loginWithGmail: () => ipcRenderer.invoke('login-with-gmail'),
+  loginWithWebAccount: (email, password) => ipcRenderer.invoke('login-with-web-account', { email, password }),
   loginWithSmtp: (config) => ipcRenderer.invoke('login-with-smtp', config),
   logout: () => ipcRenderer.invoke('logout'),
   getUserEmail: () => ipcRenderer.invoke('get-user-email'),

@@ -6,7 +6,8 @@ const LicenceActivationView = ({}) => {
     const theme = useTheme();
     const [email, setEmail] = useState("");
     const [licence, setLicence] = useState("");
-    const [touched, setTouched] = useState({ email: false, licence: false });
+    const [password, setPassword] = useState("");
+    const [touched, setTouched] = useState({ email: false, licence: false, password: false });
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(""); // új state
 
@@ -15,7 +16,8 @@ const LicenceActivationView = ({}) => {
     const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const isLicenceValid = normalisedLicence.length === 16;
 
-    const canSubmit = isEmailValid && isLicenceValid && !submitting;
+    const isPasswordValid = password.length >= 6;
+    const canSubmit = isEmailValid && isLicenceValid && isPasswordValid && !submitting;
 
     const handleLicenceChange = (e) => {
         const raw = e.target.value;
@@ -33,6 +35,15 @@ const LicenceActivationView = ({}) => {
         setSubmitting(true);
         try {
             const payload = { email: email.trim(), licenceKey: normalisedLicence };
+
+            // First login to web account so server-side session/token is available
+            const loginOk = await window.api.loginWithWebAccount(email.trim(), password);
+            if (!loginOk) {
+                setError('A webes bejelentkezés sikertelen. Ellenőrizd az emailt és jelszót.');
+                setSubmitting(false);
+                return;
+            }
+
             // IPC call to backend
             const res = await window.api.checkLicence(payload);
             if (res.success) {
@@ -130,6 +141,27 @@ const LicenceActivationView = ({}) => {
                     touched.email && !isEmailValid
                         ? "Érvényes email címet adjon meg."
                         : "Adja meg a vásárláskor használt email címet."
+                }
+                sx={{
+                    '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        background: 'rgba(0, 0, 0, 0.2)',
+                    },
+                }}
+            />
+
+            <TextField
+                label="Webes fiók jelszó"
+                type="password"
+                value={password}
+                required
+                onChange={(e) => setPassword(e.target.value)}
+                onBlur={() => setTouched(t => ({ ...t, password: true }))}
+                error={touched.password && !isPasswordValid}
+                helperText={
+                    touched.password && !isPasswordValid
+                        ? "A jelszó legalább 6 karakter legyen."
+                        : "Add meg a szerveren regisztrált fiók jelszavát."
                 }
                 sx={{
                     '& .MuiOutlinedInput-root': {

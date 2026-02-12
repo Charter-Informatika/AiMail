@@ -2,6 +2,7 @@ import { getSecret, setSecret } from '../utils/keytarHelper.js';
 
 let API_BASE_URL = null;
 let API_KEY = null;
+let SESSION_TOKEN = null;
 let configInitialized = false;
 
 async function initApiConfig() {
@@ -26,9 +27,14 @@ async function initApiConfig() {
   } catch (e) {
     console.warn('[API] Failed to get DESKTOP_API_KEY from keytar:', e?.message);
   }
+  try {
+    SESSION_TOKEN = await getSecret('DESKTOP_SESSION_TOKEN');
+  } catch (e) {
+    console.warn('[API] Failed to get DESKTOP_SESSION_TOKEN from keytar:', e?.message);
+  }
   
   configInitialized = true;
-  return { API_BASE_URL, API_KEY };
+  return { API_BASE_URL, API_KEY, SESSION_TOKEN };
 }
 
 /**
@@ -36,6 +42,15 @@ async function initApiConfig() {
  */
 async function apiRequest(endpoint, method = 'POST', body = null, retries = 3) {
   const config = await initApiConfig();
+  // Ensure we have the latest session token (may be set after initial init)
+  if (!config.SESSION_TOKEN) {
+    try {
+      const latest = await getSecret('DESKTOP_SESSION_TOKEN');
+      if (latest) config.SESSION_TOKEN = latest;
+    } catch (e) {
+      // ignore
+    }
+  }
   
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -45,6 +60,10 @@ async function apiRequest(endpoint, method = 'POST', body = null, retries = 3) {
       
       if (config.API_KEY) {
         headers['X-API-Key'] = config.API_KEY;
+      }
+
+      if (config.SESSION_TOKEN) {
+        headers['Authorization'] = `Bearer ${config.SESSION_TOKEN}`;
       }
 
       const controller = new AbortController();

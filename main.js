@@ -70,7 +70,7 @@ function flushPendingUpdateEvents() {
 }
 
 import { findFile } from './src/utils/findFile.js';
-import { getSecret } from './src/utils/keytarHelper.js';
+import { getSecret, setSecret } from './src/utils/keytarHelper.js';
 import { getUnreadEmails, getEmailById, getRecentEmails } from './gmail.js';
 import KB from './src/backend/kb-manager.js';
 import SmtpEmailHandler from './src/backend/smtp-handler.js';
@@ -1441,6 +1441,31 @@ ipcMain.handle('login-with-smtp', async (event, config) => {
   } catch (error) {
     console.error('SMTP bejelentkezési hiba:', error);
     setAuthState({ isAuthenticated: false, provider: null, credentials: null });
+    return false;
+  }
+});
+
+ipcMain.handle('login-with-web-account', async (event, { email, password }) => {
+  try {
+    const serverUrl = (await getSecret('API_BASE_URL')) || 'https://okosmail.hu';
+    const endpoint = `${serverUrl.replace(/\/+$/, '')}/api/desktop/login`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      timeout: 15000,
+    });
+
+    const data = await res.json();
+    if (res.ok && data?.success && data.token) {
+      await setSecret('DESKTOP_SESSION_TOKEN', data.token);
+      return true;
+    }
+
+    console.error('[desktop-login] failed:', data);
+    return false;
+  } catch (err) {
+    console.error('[desktop-login] error:', err?.message || err);
     return false;
   }
 });
